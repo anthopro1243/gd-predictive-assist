@@ -1,0 +1,117 @@
+{
+    "geode": "5.11.2",
+    "gd": {
+        "win": "2.2081"
+    },
+    "id": "anthonyvp.predictive-assist",
+    "name": "Predictive Assist",
+    "version": "v0.1.0",
+    "developer": "Anthony",
+    "description": "Bot-assisted play: holds back clicks that would kill you when waiting a step or two survives, and replays early clicks on landings and orbs.",
+    "settings": {
+        "sec-general": {
+            "type": "title",
+            "name": "General",
+            "description": "This mod changes your inputs. Runs made with it are bot-assisted and not valid for leaderboards or demon lists.\n\nTimings are in **physics steps**. At the default 240 TPS, 1 step is about 4 ms and 4 steps is about one frame at 60 FPS. If you use a TPS bypass, the numbers are steps at your TPS."
+        },
+        "enabled": {
+            "type": "bool",
+            "name": "Enabled",
+            "description": "Master switch for everything below.",
+            "default": true
+        },
+        "show-label": {
+            "type": "bool",
+            "name": "Show 'Bot-assisted' label",
+            "description": "Shows a label in the top-left corner with how many inputs were delayed or buffered this attempt.",
+            "default": true
+        },
+        "sec-predict": {
+            "type": "title",
+            "name": "Predictive delay",
+            "description": "When you click or release, the mod simulates what happens. If doing it now kills you but waiting a few steps does not, the input waits for the first safe step.\n\nThe simulation stops at orbs, pads and most portals and lets those inputs through unchanged. The early-click buffer below covers orbs."
+        },
+        "predictive": {
+            "type": "bool",
+            "name": "Predictive delay",
+            "default": true
+        },
+        "max-delay": {
+            "type": "int",
+            "name": "Max delay (steps)",
+            "description": "How long an input may be held back. 3 steps is about 12 ms at 240 TPS.",
+            "default": 3,
+            "min": 0,
+            "max": 8,
+            "control": { "input": true, "arrows": true, "slider": true }
+        },
+        "lookahead-ground": {
+            "type": "int",
+            "name": "Look-ahead: cube, ball, robot, spider (steps)",
+            "description": "How far past the input the simulation checks for a death. Longer catches more but trusts the simulation further ahead.",
+            "default": 30,
+            "min": 4,
+            "max": 120,
+            "control": { "input": true, "arrows": true, "slider": false }
+        },
+        "lookahead-fly": {
+            "type": "int",
+            "name": "Look-ahead: ship, UFO, wave, swing (steps)",
+            "description": "Shorter than ground modes because the simulation assumes you hold or release for the whole look-ahead, which is rarely true in fly modes.",
+            "default": 12,
+            "min": 4,
+            "max": 120,
+            "control": { "input": true, "arrows": true, "slider": false }
+        },
+        "assist-releases": {
+            "type": "bool",
+            "name": "Also delay releases",
+            "description": "Matters for ship, wave and robot, where letting go is an input.",
+            "default": true
+        },
+        "predict-cube": { "type": "bool", "name": "Predict: cube", "default": true },
+        "predict-ship": { "type": "bool", "name": "Predict: ship", "default": true },
+        "predict-ball": { "type": "bool", "name": "Predict: ball", "default": true },
+        "predict-ufo": { "type": "bool", "name": "Predict: UFO", "default": true },
+        "predict-wave": { "type": "bool", "name": "Predict: wave", "default": true },
+        "predict-robot": { "type": "bool", "name": "Predict: robot", "default": true },
+        "predict-spider": { "type": "bool", "name": "Predict: spider", "default": true },
+        "predict-swing": { "type": "bool", "name": "Predict: swing", "default": true },
+        "sec-early": {
+            "type": "title",
+            "name": "Early-click buffer",
+            "description": "Cube, ball, robot and spider. A tap in the air that you release before landing is replayed when you touch the ground or an orb within the window, with the same tap length (so robot jumps keep their height)."
+        },
+        "early-buffer": {
+            "type": "bool",
+            "name": "Early-click buffer",
+            "default": true
+        },
+        "early-window": {
+            "type": "int",
+            "name": "Early window (steps)",
+            "description": "How early a tap can be and still count. Larger windows can fire a tap meant for an orb on a landing that comes first.",
+            "default": 4,
+            "min": 0,
+            "max": 16,
+            "control": { "input": true, "arrows": true, "slider": true }
+        },
+        "sec-debug": {
+            "type": "title",
+            "name": "Testing",
+            "description": "Use these to check that the simulation matches the real game."
+        },
+        "show-path": {
+            "type": "bool",
+            "name": "Show predicted path",
+            "description": "Draws the simulated path for the last assisted input: green when the chosen timing survives, red when nothing survived. If the green path does not match where you actually go, the simulation is wrong in that spot.",
+            "default": false
+        },
+        "debug": {
+            "type": "bool",
+            "name": "Debug logging",
+            "description": "Logs every delayed or buffered input to the Geode console.",
+            "default": false
+        }
+    }
+}

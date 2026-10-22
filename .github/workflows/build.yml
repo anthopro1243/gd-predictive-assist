@@ -1,0 +1,39 @@
+name: Build Geode Mod
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "**"
+
+jobs:
+  build:
+    name: Windows
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the mod
+        uses: geode-sdk/build-geode-mod@main
+        with:
+          combine: true
+          target: Win64
+          # Pinned to the bindings commit that matches Geode SDK 5.11.2 and
+          # GD 2.2081 (the bindings main branch is mid-update for a newer GD).
+          bindings-ref: 1605f500d053f8de122bf5c7dc6d17c24866e02e
+          configure-args: -DSKIP_BUILDING_CODEGEN=OFF
+
+  package:
+    name: Package build
+    runs-on: ubuntu-latest
+    needs: ['build']
+
+    steps:
+      - uses: geode-sdk/build-geode-mod/combine@main
+        id: build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Build Output
+          path: ${{ steps.build.outputs.build-output }}
