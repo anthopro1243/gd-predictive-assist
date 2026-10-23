@@ -30,6 +30,7 @@ struct Settings {
     bool autoSave = true;
     int saveWindow = 10;       // steps before a death the mod may click for you
     int saveHold = 6;          // steps the auto-click holds the button
+    int planAhead = 240;       // ground modes: steps an auto-click must leave a way through
 
     bool showPath = false;
     bool debug = false;

@@ -39,6 +39,7 @@ void loadSettings() {
     s.autoSave = getBool("auto-save");
     s.saveWindow = getInt("save-window");
     s.saveHold = getInt("save-hold");
+    s.planAhead = getInt("plan-ahead");
     s.showPath = getBool("show-path");
     s.debug = getBool("debug");
 }
@@ -85,7 +86,7 @@ $on_mod(Loaded) {
         listenForSettingChanges<bool>(key, [](bool) { loadSettings(); overlayRefresh(); });
     }
     for (auto key : {"max-delay", "lookahead-ground", "lookahead-fly", "early-window",
-                     "save-window", "save-hold"}) {
+                     "save-window", "save-hold", "plan-ahead"}) {
         listenForSettingChanges<int64_t>(key, [](int64_t) { loadSettings(); });
     }
 

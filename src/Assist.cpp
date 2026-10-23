@@ -45,6 +45,43 @@ constexpr int JUMP_BUTTON = 1;
 constexpr int SAVE_JUMP_STEPS = 110;    // a full cube jump at 240 TPS is about 100 steps
 constexpr int SAVE_SWALLOW_SLACK = 8;   // steps past the avoided death a late click is still dropped
 
+// Plan-ahead search for ground-mode auto-clicks.
+constexpr int PLAN_DEPTH = 2;           // follow-up clicks tried after the auto-click
+constexpr int PLAN_STRIDE = 6;          // steps between follow-up click times tried
+constexpr int PLAN_BUDGET_US = 1500;    // search time per physics step before giving up
+constexpr int PLAN_LAST_CHANCE = 2;     // this close to death, click even into a dead end
+
+enum class Plan { Viable, DeadEnd, OutOfTime };
+
+using PlanClock = std::chrono::steady_clock;
+
+// Is there a way to survive `horizon` steps that starts with `events`, adding
+// up to `depth` more clicks? Follow-up clicks are tried latest first, since a
+// click just before the death is the usual way past it.
+Plan findPlan(PlayLayer* pl, std::vector<PlayerObject*> const& sims, std::vector<SimEvent>& events,
+              int horizon, int depth, int hold, PlanClock::time_point deadline) {
+    if (PlanClock::now() > deadline) return Plan::OutOfTime;
+
+    int diedAt = -1;
+    for (auto sp : sims) {
+        auto r = simulate(pl, sp, events, horizon, false);
+        if (r.died) diedAt = diedAt < 0 ? r.ticks : std::min(diedAt, r.ticks);
+    }
+    if (diedAt < 0) return Plan::Viable;
+    if (depth == 0) return Plan::DeadEnd;
+
+    int earliest = events.empty() ? 0 : events.back().tick + 1;
+    for (int t = diedAt - 1; t >= earliest; t -= PLAN_STRIDE) {
+        events.push_back({t, true});
+        events.push_back({t + hold, false});
+        auto res = findPlan(pl, sims, events, horizon, depth - 1, hold, deadline);
+        events.pop_back();
+        events.pop_back();
+        if (res != Plan::DeadEnd) return res;
+    }
+    return Plan::DeadEnd;
+}
+
 }
 
 class $modify(AssistLayer, GJBaseGameLayer) {
@@ -366,6 +403,27 @@ class $modify(AssistLayer, GJBaseGameLayer) {
                 return;
             }
         }
+        // Ground modes: clearing this obstacle is not enough if the jump lands
+        // somewhere with no way out. Look further ahead, allowing follow-up
+        // clicks, and hold off while this click only leads to a dead end; a
+        // later step may find a click that does not. If the search runs out of
+        // time, the basic check above stands.
+        if (isGroundMode(p) && c.planAhead > look) {
+            auto plan = events;
+            auto deadline = PlanClock::now() + std::chrono::microseconds(PLAN_BUDGET_US);
+            auto res = findPlan(pl, sims, plan, c.planAhead, PLAN_DEPTH, hold, deadline);
+            if (res == Plan::DeadEnd && deathIn > PLAN_LAST_CHANCE) {
+                if (c.debug) {
+                    log::info("[Assist] P{} {}: death in {} steps, clicking now leads to a dead end, waiting",
+                              j + 1, modeName(modeOf(p)), deathIn);
+                }
+                return;
+            }
+            if (c.debug && res == Plan::OutOfTime) {
+                log::info("[Assist] P{} {}: plan-ahead ran out of time, using the short check", j + 1, modeName(modeOf(p)));
+            }
+        }
+
         if (c.showPath) overlayShowPath(shown.path, false);
 
         int step = f->step;
