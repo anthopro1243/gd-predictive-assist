@@ -144,6 +144,9 @@ void feed(std::string const& event, float x, std::string const& mode, int step, 
         // Held-back presses are logged again as press-fired where they land.
         if (detail.find("dropped") != std::string::npos || detail.find("delay") != std::string::npos) return;
         if (!groundModeName(mode) || x < MIN_X) return;
+        // Before v0.8.1 a held-back click was logged twice on the step it
+        // landed; keep one.
+        if (!g_cur.presses.empty() && g_cur.presses.back().step == step) return;
         g_cur.presses.push_back({x, step});
     } else if (event == "release") {
         for (auto it = g_cur.presses.rbegin(); it != g_cur.presses.rend(); ++it) {

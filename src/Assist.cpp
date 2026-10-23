@@ -44,6 +44,12 @@ struct EarlyState {
 };
 
 constexpr int JUMP_BUTTON = 1;
+
+// Set while the assist hands an input to the game. Calling the original
+// handleButton from outside the hook (as processCommands does for held-back
+// inputs) enters the hook chain from the top, so without this a delayed click
+// was checked, and delayed, a second time.
+bool g_delivering = false;
 constexpr int SAVE_JUMP_STEPS = 110;    // a full cube jump at 240 TPS is about 100 steps
 constexpr int SAVE_SWALLOW_SLACK = 8;
 constexpr int LEARN_SWALLOW_STEPS = 12;     // a click this soon after a learned click is the same click, late
@@ -177,7 +183,9 @@ class $modify(AssistLayer, GJBaseGameLayer) {
             }
         }
 
+        g_delivering = true;
         GJBaseGameLayer::handleButton(down, JUMP_BUTTON, p1Key);
+        g_delivering = false;
     }
 
     // ---- predictive delay --------------------------------------------------
@@ -248,6 +256,10 @@ class $modify(AssistLayer, GJBaseGameLayer) {
     // ---- hooks -------------------------------------------------------------
 
     void handleButton(bool down, int button, bool isPlayer1) {
+        if (g_delivering) {
+            GJBaseGameLayer::handleButton(down, button, isPlayer1);
+            return;
+        }
         if (simActive() || button != JUMP_BUTTON || !cfg().enabled || !isPlayLayer() ||
             !m_levelSettings || m_levelSettings->m_platformerMode) {
             GJBaseGameLayer::handleButton(down, button, isPlayer1);
