@@ -4,7 +4,11 @@
 //    next physics step. If that dies within the look-ahead but holding it back
 //    1..N steps survives, hold it back by the smallest such delay.
 //
-// 2. Early-click buffer: a press in the air (cube, ball, robot, spider) that
+// 2. Auto-click save: every physics step while the button is up, simulate
+//    doing nothing. If that dies within the save window but a click right now
+//    survives, click for the player. This is what helps with late clicks.
+//
+// 3. Early-click buffer: a press in the air (cube, ball, robot, spider) that
 //    is released before landing is replayed when the player touches the ground
 //    or an orb within the window, keeping the original tap length. This covers
 //    orbs, which the simulation does not model.
@@ -47,6 +51,7 @@ class $modify(AssistLayer, GJBaseGameLayer) {
         int epoch = -1;
         std::deque<Queued> queue[2];
         EarlyState early[2];
+        int saveCooldown[2] = {0, 0};
         int rateCount = 0;
         std::chrono::steady_clock::time_point rateStart;
     };
@@ -76,6 +81,7 @@ class $modify(AssistLayer, GJBaseGameLayer) {
             if (!f->queue[i].empty() || f->early[i].rescueHeld) owedRelease = true;
             f->queue[i].clear();
             f->early[i] = EarlyState();
+            f->saveCooldown[i] = 0;
         }
         // A held-back release may never have reached the game. Releasing a
         // button that is not held is harmless.
@@ -274,6 +280,84 @@ class $modify(AssistLayer, GJBaseGameLayer) {
         if (active) {
             stepEarly(0);
             stepEarly(1);
+            stepSave(0);
+            stepSave(1);
+        }
+    }
+
+    // ---- auto-click save -----------------------------------------------------
+
+    bool holdingJump(PlayerObject* p) {
+        auto it = p->m_holdingButtons.find(static_cast<int>(PlayerButton::Jump));
+        return it != p->m_holdingButtons.end() && it->second;
+    }
+
+    void stepSave(int j) {
+        auto const& c = cfg();
+        if (!c.enabled || !c.autoSave || c.saveWindow <= 0) return;
+        if (!m_levelSettings || m_levelSettings->m_platformerMode) return;
+        // In shared dual mode player 1's button drives both; handle it once.
+        if (j == 1 && (!m_gameState.m_isDualMode || sharedDual())) return;
+
+        auto f = m_fields.operator->();
+        auto pl = PlayLayer::get();
+        auto p = playerAt(j);
+        if (!pl || !p || p->m_isDead || pl->m_hasCompletedLevel || !simReady(pl)) return;
+        if (!c.predictMode[modeOf(p)]) return;
+        if (f->step < f->saveCooldown[j]) return;
+
+        std::vector<PlayerObject*> sims = {p};
+        if (j == 0 && sharedDual() && m_player2) sims.push_back(m_player2);
+
+        // Never fight the player: only step in while the button is up and
+        // nothing of ours is waiting.
+        if (!f->queue[0].empty() || !f->queue[1].empty()) return;
+        for (auto sp : sims) {
+            int k = sp == m_player1 ? 0 : 1;
+            auto const& s = f->early[k];
+            if (s.held || s.pending || s.rescueHeld || holdingJump(sp)) return;
+        }
+
+        int deathIn = -1;
+        for (auto sp : sims) {
+            auto idle = simulate(pl, sp, {}, c.saveWindow, false);
+            if (idle.died) deathIn = deathIn < 0 ? idle.ticks : std::min(deathIn, idle.ticks);
+        }
+        if (deathIn < 0) return;
+
+        int hold = std::max(1, c.saveHold);
+        int look = std::max(isGroundMode(p) ? c.lookGround : c.lookFly, hold + 1);
+        std::vector<SimEvent> events = {{0, true}, {hold, false}};
+        SimResult shown;
+        for (auto sp : sims) {
+            auto r = simulate(pl, sp, events, look, c.showPath && sp == p);
+            if (sp == p) shown = r;
+            if (r.died) {
+                if (c.debug) {
+                    log::info("[Assist] P{} {}: death in {} steps, clicking now doesn't survive either",
+                              j + 1, modeName(modeOf(p)), deathIn);
+                }
+                // Try again next step: clicking a little later may survive.
+                return;
+            }
+        }
+        if (c.showPath) overlayShowPath(shown.path, false);
+
+        int step = f->step;
+        for (auto sp : sims) {
+            int k = sp == m_player1 ? 0 : 1;
+            sp->pushButton(PlayerButton::Jump);
+            f->early[k].rescueHeld = true;
+            f->early[k].rescueReleaseAt = step + hold;
+        }
+        f->saveCooldown[j] = step + hold + 2;
+
+        stats().saved++;
+        stats().last = fmt::format("auto-click ({} steps from death)", deathIn);
+        overlayRefresh();
+        if (c.debug) {
+            log::info("[Assist] P{} {}: auto-click, death was {} steps away, held {} steps",
+                      j + 1, modeName(modeOf(p)), deathIn, hold);
         }
     }
 

@@ -37,7 +37,7 @@ void overlayRefresh() {
     if (!show) return;
 
     auto const& s = stats();
-    std::string text = fmt::format("Bot-assisted\ndelayed {}  buffered {}", s.delayed, s.buffered);
+    std::string text = fmt::format("Bot-assisted\nsaved {}  delayed {}  buffered {}", s.saved, s.delayed, s.buffered);
     if (!s.last.empty()) text += "\nlast: " + s.last;
     g_label->setString(text.c_str());
 }

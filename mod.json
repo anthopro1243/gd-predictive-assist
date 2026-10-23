@@ -5,9 +5,9 @@
     },
     "id": "anthonyvp.predictive-assist",
     "name": "Predictive Assist",
-    "version": "v0.1.0",
+    "version": "v0.2.0",
     "developer": "Anthony",
-    "description": "Bot-assisted play: holds back clicks that would kill you when waiting a step or two survives, and replays early clicks on landings and orbs.",
+    "description": "Bot-assisted play: clicks for you right before a death, holds back clicks that would kill you when waiting a step or two survives, and replays early clicks on landings and orbs.",
     "settings": {
         "sec-general": {
             "type": "title",
@@ -26,6 +26,34 @@
             "description": "Shows a label in the top-left corner with how many inputs were delayed or buffered this attempt.",
             "default": true
         },
+        "sec-save": {
+            "type": "title",
+            "name": "Auto-click save",
+            "description": "When you are about to die and a click right now would survive, the mod clicks for you. This is the part that helps when you click too late. It only steps in while you are not holding the button, and only if the simulation can see the death coming (it stops at orbs, pads and most portals)."
+        },
+        "auto-save": {
+            "type": "bool",
+            "name": "Auto-click save",
+            "default": true
+        },
+        "save-window": {
+            "type": "int",
+            "name": "Save window (steps)",
+            "description": "How close to a death the mod may click for you. Bigger is stronger. 10 steps is about 40 ms at 240 TPS; 40 steps is about 170 ms, which will play most simple jumps for you.",
+            "default": 10,
+            "min": 1,
+            "max": 40,
+            "control": { "input": true, "arrows": true, "slider": true }
+        },
+        "save-hold": {
+            "type": "int",
+            "name": "Auto-click length (steps)",
+            "description": "How long the auto-click holds the button. Short is a tap; longer gives higher robot jumps and longer ship/UFO/swing climbs.",
+            "default": 6,
+            "min": 1,
+            "max": 40,
+            "control": { "input": true, "arrows": true, "slider": false }
+        },
         "sec-predict": {
             "type": "title",
             "name": "Predictive delay",
@@ -39,10 +67,10 @@
         "max-delay": {
             "type": "int",
             "name": "Max delay (steps)",
-            "description": "How long an input may be held back. 3 steps is about 12 ms at 240 TPS.",
-            "default": 3,
+            "description": "How long an input may be held back. 5 steps is about 20 ms at 240 TPS.",
+            "default": 5,
             "min": 0,
-            "max": 8,
+            "max": 16,
             "control": { "input": true, "arrows": true, "slider": true }
         },
         "lookahead-ground": {
@@ -91,9 +119,9 @@
             "type": "int",
             "name": "Early window (steps)",
             "description": "How early a tap can be and still count. Larger windows can fire a tap meant for an orb on a landing that comes first.",
-            "default": 4,
+            "default": 6,
             "min": 0,
-            "max": 16,
+            "max": 24,
             "control": { "input": true, "arrows": true, "slider": true }
         },
         "sec-debug": {
@@ -110,7 +138,7 @@
         "debug": {
             "type": "bool",
             "name": "Debug logging",
-            "description": "Logs every delayed or buffered input to the Geode console.",
+            "description": "Logs every auto-click, delayed and buffered input to the Geode console.",
             "default": false
         }
     }

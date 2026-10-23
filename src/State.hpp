@@ -18,14 +18,18 @@ struct Settings {
     bool showLabel = true;
 
     bool predictive = true;
-    int maxDelay = 3;          // physics steps an input may be held back
+    int maxDelay = 5;          // physics steps an input may be held back
     int lookGround = 30;       // steps simulated after the input, cube/ball/robot/spider
     int lookFly = 12;          // steps simulated after the input, ship/ufo/wave/swing
     bool assistReleases = true;
     bool predictMode[ModeCount] = {true, true, true, true, true, true, true, true};
 
     bool earlyBuffer = true;
-    int earlyWindow = 4;       // physics steps
+    int earlyWindow = 6;       // physics steps
+
+    bool autoSave = true;
+    int saveWindow = 10;       // steps before a death the mod may click for you
+    int saveHold = 6;          // steps the auto-click holds the button
 
     bool showPath = false;
     bool debug = false;
@@ -69,6 +73,7 @@ SimResult simulate(PlayLayer* pl, PlayerObject* real, std::vector<SimEvent> cons
 struct Stats {
     int delayed = 0;
     int buffered = 0;
+    int saved = 0;
     std::string last;
 };
 
