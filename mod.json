@@ -5,7 +5,7 @@
     },
     "id": "anthonyvp.predictive-assist",
     "name": "Predictive Assist",
-    "version": "v0.7.1",
+    "version": "v0.8.0",
     "developer": "Anthony",
     "description": "Bot-assisted play: clicks for you right before a death, holds back clicks that would kill you when waiting a step or two survives, and replays early clicks on landings and orbs.",
     "settings": {
@@ -44,6 +44,12 @@
             "min": 0,
             "max": 40,
             "control": { "input": true, "arrows": true, "slider": true }
+        },
+        "learn-block": {
+            "type": "bool",
+            "name": "Learned: block bad clicks",
+            "description": "Drops a click at a spot where clicking has killed you every time (at least 3 times) and getting past without clicking there has worked (at least 3 times).",
+            "default": true
         },
         "sec-save": {
             "type": "title",

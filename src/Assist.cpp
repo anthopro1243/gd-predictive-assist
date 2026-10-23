@@ -307,6 +307,15 @@ class $modify(AssistLayer, GJBaseGameLayer) {
                     int d = static_cast<int>(std::ceil((w->lo - x) / f->dx));
                     delay = std::max(minDelay, d);
                 }
+            } else if (cfg().learnBlock && q.empty() && learnIsBadClick(x)) {
+                // Clicking here has always killed the player and passing
+                // without a click has worked: drop it and its release.
+                f->swallowRelease[i] = true;
+                record(p, "press", "dropped: known bad click");
+                stats().blocked++;
+                stats().last = fmt::format("blocked bad click at {:.0f}", x);
+                overlayRefresh();
+                return;
             }
         }
         if (!learned && shouldPredict(p, down) && simReady(pl)) {

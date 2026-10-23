@@ -29,6 +29,14 @@ constexpr float CLUSTER_GAP = 8.f;     // good clicks further apart than this ar
 constexpr int MIN_GOOD = 3;            // good clicks needed before a window is trusted
 constexpr float MIN_X = 5.f;           // ignore the click held from the restart
 
+// Known-bad clicks: a spot is blocked when clicks there died at least
+// BAD_MIN times and never worked, and attempts that passed it without
+// clicking nearby survived at least PASS_MIN times.
+constexpr float BAD_RADIUS = 1.5f;     // about one physics step either side
+constexpr int BAD_MIN = 3;
+constexpr float PASS_CLEAR = 6.f;      // no click within this distance counts as passing without one
+constexpr int PASS_MIN = 3;
+
 struct Press {
     float x;
     int step;
@@ -49,6 +57,11 @@ struct Spot {
 };
 std::map<int, Spot> g_spots;  // keyed by x * 10, rounded
 int g_goodTotal = 0;
+struct Finished {
+    std::vector<float> pressX;
+    float endX;
+};
+std::vector<Finished> g_finished;  // every finished attempt, for the pass-without-click check
 std::vector<LearnWindow> g_windows;
 
 // A start-position copy is usually named after the level ("Kuzureta
@@ -103,6 +116,9 @@ void rebuild() {
 
 void finish(float endX) {
     if (!g_cur.open) return;
+    Finished fin{{}, endX};
+    for (auto const& p : g_cur.presses) fin.pressX.push_back(p.x);
+    g_finished.push_back(std::move(fin));
     for (auto const& p : g_cur.presses) {
         auto& spot = g_spots[static_cast<int>(std::lround(p.x * 10.f))];
         if (endX > p.x + SURVIVE_DIST) {
@@ -151,6 +167,7 @@ void learnLoadLevel(std::string const& level) {
     g_level = level;
     g_cur = Attempt();
     g_spots.clear();
+    g_finished.clear();
     g_goodTotal = 0;
 
     std::ifstream in(Mod::get()->getSaveDir() / "attempts.csv");
@@ -175,6 +192,31 @@ void learnLoadLevel(std::string const& level) {
 
 void learnFeed(char const* event, PlayerObject* p, int step, std::string const& detail) {
     feed(event, p->getPositionX(), modeName(modeOf(p)), step, detail);
+}
+
+bool learnIsBadClick(float x) {
+    int good = 0, bad = 0;
+    auto lo = g_spots.lower_bound(static_cast<int>(std::lround((x - BAD_RADIUS) * 10.f)));
+    auto hi = g_spots.upper_bound(static_cast<int>(std::lround((x + BAD_RADIUS) * 10.f)));
+    for (auto it = lo; it != hi; ++it) {
+        good += it->second.good;
+        bad += it->second.bad;
+    }
+    if (bad < BAD_MIN || good > 0) return false;
+
+    int passes = 0;
+    for (auto const& f : g_finished) {
+        if (f.endX <= x + SURVIVE_DIST) continue;
+        bool clickedNear = false;
+        for (float px : f.pressX) {
+            if (std::abs(px - x) <= PASS_CLEAR) {
+                clickedNear = true;
+                break;
+            }
+        }
+        if (!clickedNear && ++passes >= PASS_MIN) return true;
+    }
+    return false;
 }
 
 int learnWindowCount() { return static_cast<int>(g_windows.size()); }

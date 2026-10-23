@@ -38,6 +38,7 @@ struct Settings {
 
     bool learn = true;
     int learnEarly = 12;       // steps before a learned window an early click is held back
+    bool learnBlock = true;    // drop clicks at spots where clicking always killed the player
 };
 
 Settings& cfg();
@@ -102,6 +103,8 @@ void learnFeed(char const* event, PlayerObject* p, int step, std::string const& 
 // First window that overlaps [x - after, x + before] around the player.
 LearnWindow const* learnWindowNear(float x, float before, float after);
 int learnWindowCount();
+// A click here has always killed the player, and not clicking here has not.
+bool learnIsBadClick(float x);
 
 // ---- stats and overlay -----------------------------------------------------
 
@@ -110,6 +113,7 @@ struct Stats {
     int buffered = 0;
     int saved = 0;
     int learned = 0;
+    int blocked = 0;
     std::string last;
 };
 
