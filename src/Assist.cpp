@@ -18,6 +18,7 @@
 #include <Geode/modify/GJBaseGameLayer.hpp>
 
 #include <chrono>
+#include <cmath>
 #include <deque>
 
 using namespace assist;
@@ -44,7 +45,9 @@ struct EarlyState {
 
 constexpr int JUMP_BUTTON = 1;
 constexpr int SAVE_JUMP_STEPS = 110;    // a full cube jump at 240 TPS is about 100 steps
-constexpr int SAVE_SWALLOW_SLACK = 8;   // steps past the avoided death a late click is still dropped
+constexpr int SAVE_SWALLOW_SLACK = 8;
+constexpr int LEARN_SWALLOW_STEPS = 12;     // a click this soon after a learned click is the same click, late
+constexpr float LEARN_SAVE_SHADOW = 80.f;   // no simulation auto-click this close before a learned window   // steps past the avoided death a late click is still dropped
 
 // Plan-ahead search for ground-mode auto-clicks.
 constexpr int PLAN_DEPTH = 2;           // follow-up clicks tried after the auto-click
@@ -94,6 +97,11 @@ class $modify(AssistLayer, GJBaseGameLayer) {
         int saveCooldown[2] = {0, 0};
         int swallowUntil[2] = {0, 0};      // after a save, the player's own late click is dropped
         bool swallowRelease[2] = {false, false};
+        // Learned windows (player 1 only).
+        float lastX = 0.f;
+        float dx = 0.f;                    // x moved per physics step
+        float lastPressX = -1e9f;          // where the last press reached the game
+        float learnedDoneHi = -1e9f;       // window already clicked for this attempt
         int rateCount = 0;
         std::chrono::steady_clock::time_point rateStart;
     };
@@ -127,6 +135,8 @@ class $modify(AssistLayer, GJBaseGameLayer) {
             f->swallowUntil[i] = 0;
             f->swallowRelease[i] = false;
         }
+        f->lastPressX = -1e9f;
+        f->learnedDoneHi = -1e9f;
         // A held-back release may never have reached the game. Releasing a
         // button that is not held is harmless.
         if (owedRelease) {
@@ -154,6 +164,7 @@ class $modify(AssistLayer, GJBaseGameLayer) {
             auto& s = f->early[j];
 
             if (down) {
+                if (j == 0) f->lastPressX = p->getPositionX();
                 s.held = true;
                 s.pressStep = tick;
                 bool early = cfg().earlyBuffer && cfg().earlyWindow > 0 &&
@@ -285,12 +296,27 @@ class $modify(AssistLayer, GJBaseGameLayer) {
         }
 
         int delay = minDelay;
-        if (shouldPredict(p, down) && simReady(pl)) {
+        bool learned = false;
+        // A learned window near this press decides its timing: hold an early
+        // press back to where clicks have worked before. Inside a window the
+        // press goes through as is.
+        if (down && i == 0 && cfg().learn && isGroundMode(p) && f->dx > 0.f) {
+            float x = p->getPositionX();
+            if (auto w = learnWindowNear(x, cfg().learnEarly * f->dx, 0.f)) {
+                learned = true;
+                if (x < w->lo) {
+                    int d = static_cast<int>(std::ceil((w->lo - x) / f->dx));
+                    delay = std::max(minDelay, d);
+                }
+            }
+        }
+        if (!learned && shouldPredict(p, down) && simReady(pl)) {
             delay = chooseDelay(pl, i, down, minDelay);
         }
 
         record(p, down ? "press" : "release",
-               delay > minDelay ? fmt::format("delayed {} steps", delay - minDelay) : std::string());
+               delay > minDelay ? fmt::format("{}delayed {} steps", learned ? "learned " : "", delay - minDelay)
+                                : std::string());
 
         if (delay > minDelay) {
             stats().delayed++;
@@ -331,6 +357,12 @@ class $modify(AssistLayer, GJBaseGameLayer) {
         bool active = isPlayLayer() && !simActive();
         if (active) {
             syncReset();
+            if (m_player1) {
+                float x = m_player1->getPositionX();
+                float d = x - f->lastX;
+                if (d > 0.01f && d < 30.f) f->dx = d;
+                f->lastX = x;
+            }
             // Delayed inputs due this step go in before the game processes
             // its input queue.
             for (int i = 0; i < 2; i++) {
@@ -339,6 +371,7 @@ class $modify(AssistLayer, GJBaseGameLayer) {
                     auto item = q.front();
                     q.pop_front();
                     deliver(i, item.down, f->step, item.p1Key);
+                    if (item.down) record(playerAt(i), "press-fired", "");
                 }
             }
         }
@@ -348,9 +381,55 @@ class $modify(AssistLayer, GJBaseGameLayer) {
         if (active) {
             stepEarly(0);
             stepEarly(1);
+            stepLearned();
             stepSave(0);
             stepSave(1);
         }
+    }
+
+    // ---- learned windows -----------------------------------------------------
+
+    // Clicks for player 1 at the end of a learned window if they have not
+    // clicked since just before it.
+    void stepLearned() {
+        auto const& c = cfg();
+        auto f = m_fields.operator->();
+        auto p = m_player1;
+        auto pl = PlayLayer::get();
+        if (!c.enabled || !c.learn || !p || p->m_isDead || f->dx <= 0.f) return;
+        if (!pl || pl->m_hasCompletedLevel || !m_levelSettings || m_levelSettings->m_platformerMode) return;
+        if (!isGroundMode(p)) return;
+
+        float x = p->getPositionX();
+        auto w = learnWindowNear(x, 0.f, 0.f);
+        if (!w || w->hi <= f->learnedDoneHi) return;
+        // Last step inside the window: the next one passes its end.
+        if (x + f->dx <= w->hi) return;
+
+        f->learnedDoneHi = w->hi;
+        if (f->lastPressX >= w->lo - c.learnEarly * f->dx) return;  // the player already clicked for it
+        if (!f->queue[0].empty()) return;                              // a held-back click is about to land
+        auto const& s = f->early[0];
+        if (s.held || s.rescueHeld || holdingJump(p)) return;
+
+        std::vector<PlayerObject*> targets = {p};
+        if (sharedDual() && m_player2) targets.push_back(m_player2);
+        int step = f->step;
+        for (auto sp : targets) {
+            int k = sp == m_player1 ? 0 : 1;
+            sp->pushButton(PlayerButton::Jump);
+            f->early[k].rescueHeld = true;
+            f->early[k].rescueReleaseAt = step + w->hold;
+        }
+        f->lastPressX = x;
+        f->saveCooldown[0] = step + w->hold + 2;
+        f->swallowUntil[0] = step + LEARN_SWALLOW_STEPS;
+
+        watch(0).clickStep = step;
+        record(p, "learned-click", fmt::format("window {:.1f}-{:.1f} from {} good clicks", w->lo, w->hi, w->n));
+        stats().learned++;
+        stats().last = fmt::format("learned click at {:.0f}", x);
+        overlayRefresh();
     }
 
     // ---- auto-click save -----------------------------------------------------
@@ -373,6 +452,9 @@ class $modify(AssistLayer, GJBaseGameLayer) {
         if (!pl || !p || p->m_isDead || pl->m_hasCompletedLevel || !simReady(pl)) return;
         if (!c.predictMode[modeOf(p)]) return;
         if (f->step < f->saveCooldown[j]) return;
+        // Where learned windows exist, they handle the timing; the simulation
+        // is often a step off on tight clicks.
+        if (j == 0 && c.learn && learnWindowNear(p->getPositionX(), LEARN_SAVE_SHADOW, 0.f)) return;
 
         std::vector<PlayerObject*> sims = {p};
         if (j == 0 && sharedDual() && m_player2) sims.push_back(m_player2);
@@ -428,6 +510,19 @@ class $modify(AssistLayer, GJBaseGameLayer) {
                 // Try again next step: clicking a little later may survive.
                 noSave("no click right now survives",
                        fmt::format("; clicking now dies after {} steps", r.ticks));
+                return;
+            }
+        }
+        // Wait for the last step a click still survives, so a player who is
+        // about to click gets to do it themselves.
+        if (deathIn > 1) {
+            std::vector<SimEvent> later = {{1, true}, {1 + hold, false}};
+            bool laterOk = true;
+            for (auto sp : sims) {
+                if (simulate(pl, sp, later, look + 1, false).died) laterOk = false;
+            }
+            if (laterOk) {
+                noSave("waiting for the last safe moment");
                 return;
             }
         }

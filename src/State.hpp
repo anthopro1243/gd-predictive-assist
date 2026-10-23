@@ -35,6 +35,9 @@ struct Settings {
     bool showPath = false;
     bool debug = false;
     bool record = true;
+
+    bool learn = true;
+    int learnEarly = 12;       // steps before a learned window an early click is held back
 };
 
 Settings& cfg();
@@ -85,12 +88,27 @@ Watch& watch(int i);
 void record(PlayerObject* p, char const* event, std::string const& detail = "");
 void recordFlush();
 
+// ---- learned click windows -------------------------------------------------
+
+struct LearnWindow {
+    float lo;   // x of the earliest click that got past this spot
+    float hi;   // x of the latest one
+    int hold;   // typical hold length of those clicks, in steps
+    int n;      // how many good clicks it is based on
+};
+
+void learnLoadLevel(std::string const& level);
+void learnFeed(char const* event, PlayerObject* p, int step, std::string const& detail);
+// First window that overlaps [x - after, x + before] around the player.
+LearnWindow const* learnWindowNear(float x, float before, float after);
+
 // ---- stats and overlay -----------------------------------------------------
 
 struct Stats {
     int delayed = 0;
     int buffered = 0;
     int saved = 0;
+    int learned = 0;
     std::string last;
 };
 

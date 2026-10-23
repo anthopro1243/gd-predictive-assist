@@ -43,6 +43,8 @@ void loadSettings() {
     s.showPath = getBool("show-path");
     s.debug = getBool("debug");
     s.record = getBool("record");
+    s.learn = getBool("learn");
+    s.learnEarly = getInt("learn-early");
 }
 
 Mode modeOf(PlayerObject* p) {
@@ -83,11 +85,11 @@ $on_mod(Loaded) {
     for (auto key : {"enabled", "show-label", "predictive", "assist-releases",
                      "predict-cube", "predict-ship", "predict-ball", "predict-ufo",
                      "predict-wave", "predict-robot", "predict-spider", "predict-swing",
-                     "early-buffer", "auto-save", "show-path", "debug", "record"}) {
+                     "early-buffer", "auto-save", "show-path", "debug", "record", "learn"}) {
         listenForSettingChanges<bool>(key, [](bool) { loadSettings(); overlayRefresh(); });
     }
     for (auto key : {"max-delay", "lookahead-ground", "lookahead-fly", "early-window",
-                     "save-window", "save-hold", "plan-ahead"}) {
+                     "save-window", "save-hold", "plan-ahead", "learn-early"}) {
         listenForSettingChanges<int64_t>(key, [](int64_t) { loadSettings(); });
     }
 

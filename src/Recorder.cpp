@@ -41,9 +41,11 @@ bool open() {
 Watch& watch(int i) { return g_watch[i == 1 ? 1 : 0]; }
 
 void record(PlayerObject* p, char const* event, std::string const& detail) {
-    if (!cfg().record || !p || !open()) return;
+    if (!p) return;
     auto pl = PlayLayer::get();
     int i = (pl && p == pl->m_player2) ? 1 : 0;
+    if (i == 0) learnFeed(event, p, watch(0).step, detail);
+    if (!cfg().record || !open()) return;
     g_file << g_level << ',' << g_attempt << ',' << watch(i).step << ','
            << fmt::format("{:.1f},{:.1f}", p->getPositionX(), p->getPositionY()) << ','
            << modeName(modeOf(p)) << (i == 1 ? "-p2" : "") << ','
@@ -72,6 +74,8 @@ class $modify(RecorderPlayLayer, PlayLayer) {
     void setupHasCompleted() {
         PlayLayer::setupHasCompleted();
         g_level = csvField(m_level ? std::string(m_level->m_levelName) : std::string("?"));
+        recordFlush();
+        learnLoadLevel(g_level);
         g_attempt = 0;
         startAttempt();
     }
@@ -84,7 +88,7 @@ class $modify(RecorderPlayLayer, PlayLayer) {
     void destroyPlayer(PlayerObject* p, GameObject* obj) {
         bool real = !simActive() && p && (p == m_player1 || p == m_player2) &&
                     obj != m_anticheatSpike && !p->m_isDead;
-        if (real && cfg().record) {
+        if (real) {
             auto const& w = watch(p == m_player2 ? 1 : 0);
             int s = w.step;
             std::string why;
