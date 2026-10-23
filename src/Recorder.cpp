@@ -61,7 +61,11 @@ using namespace assist;
 class $modify(RecorderPlayLayer, PlayLayer) {
     void startAttempt() {
         g_attempt++;
-        for (auto& w : g_watch) w = Watch();
+        for (auto& w : g_watch) {
+            int step = w.step;
+            w = Watch();
+            w.step = step;
+        }
         if (m_player1) record(m_player1, "attempt", "");
     }
 

@@ -27,6 +27,7 @@ namespace {
 struct Queued {
     int fireStep;
     bool down;
+    bool p1Key;  // the flag the game sent, passed back unchanged
 };
 
 struct EarlyState {
@@ -141,7 +142,7 @@ class $modify(AssistLayer, GJBaseGameLayer) {
 
     // Hands an input to the game and updates early-buffer bookkeeping.
     // `tick` is the physics step the game will apply it on.
-    void deliver(int i, bool down, int tick) {
+    void deliver(int i, bool down, int tick, bool p1Key) {
         auto f = m_fields.operator->();
 
         int first = i, last = i;
@@ -166,7 +167,7 @@ class $modify(AssistLayer, GJBaseGameLayer) {
             }
         }
 
-        GJBaseGameLayer::handleButton(down, JUMP_BUTTON, i == 0);
+        GJBaseGameLayer::handleButton(down, JUMP_BUTTON, p1Key);
     }
 
     // ---- predictive delay --------------------------------------------------
@@ -246,7 +247,9 @@ class $modify(AssistLayer, GJBaseGameLayer) {
         syncReset();
         auto f = m_fields.operator->();
         auto pl = PlayLayer::get();
-        int i = isPlayer1 ? 0 : 1;
+        // Outside two-player mode the player-2 keys (Up arrow, W) also drive
+        // player 1, so only two-player mode splits inputs by player.
+        int i = (isPlayer1 || !m_levelSettings->m_twoPlayerMode) ? 0 : 1;
         auto p = playerAt(i);
         if (!p || p->m_isDead || pl->m_hasCompletedLevel) {
             GJBaseGameLayer::handleButton(down, button, isPlayer1);
@@ -296,10 +299,10 @@ class $modify(AssistLayer, GJBaseGameLayer) {
         }
 
         if (delay == 0 && q.empty()) {
-            deliver(i, down, nextStep);
+            deliver(i, down, nextStep, isPlayer1);
             return;
         }
-        q.push_back({nextStep + delay, down});
+        q.push_back({nextStep + delay, down, isPlayer1});
     }
 
     void processCommands(float dt, bool isHalfTick, bool isLastTick) {
@@ -333,9 +336,9 @@ class $modify(AssistLayer, GJBaseGameLayer) {
             for (int i = 0; i < 2; i++) {
                 auto& q = f->queue[i];
                 while (!q.empty() && q.front().fireStep <= f->step) {
-                    bool down = q.front().down;
+                    auto item = q.front();
                     q.pop_front();
-                    deliver(i, down, f->step);
+                    deliver(i, item.down, f->step, item.p1Key);
                 }
             }
         }
