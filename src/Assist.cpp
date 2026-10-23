@@ -264,6 +264,7 @@ class $modify(AssistLayer, GJBaseGameLayer) {
                 f->swallowUntil[i] = 0;
                 f->swallowRelease[i] = true;
                 if (cfg().debug) log::info("[Assist] P{} late click after auto-click dropped", i + 1);
+                record(p, "press", "dropped: late click right after an auto-click");
                 return;
             }
             if (!down && f->swallowRelease[i]) {
@@ -285,6 +286,9 @@ class $modify(AssistLayer, GJBaseGameLayer) {
             delay = chooseDelay(pl, i, down, minDelay);
         }
 
+        record(p, down ? "press" : "release",
+               delay > minDelay ? fmt::format("delayed {} steps", delay - minDelay) : std::string());
+
         if (delay > minDelay) {
             stats().delayed++;
             stats().last = fmt::format("+{} {}", delay - minDelay, down ? "click" : "release");
@@ -301,6 +305,8 @@ class $modify(AssistLayer, GJBaseGameLayer) {
     void processCommands(float dt, bool isHalfTick, bool isLastTick) {
         auto f = m_fields.operator->();
         f->step++;
+        watch(0).step = f->step;
+        watch(1).step = f->step;
 
         // Debug: report how many times per real second this runs, to confirm
         // one call per physics step (should match your TPS, 240 by default).
@@ -381,8 +387,17 @@ class $modify(AssistLayer, GJBaseGameLayer) {
         for (auto sp : sims) {
             auto idle = simulate(pl, sp, {}, c.saveWindow, false);
             if (idle.died) deathIn = deathIn < 0 ? idle.ticks : std::min(deathIn, idle.ticks);
+            if (idle.unknown) watch(j).blindStep = f->step;
         }
         if (deathIn < 0) return;
+        watch(j).dangerStep = f->step;
+        auto noSave = [&](char const* why) {
+            auto& w = watch(j);
+            if (w.danger != why) {
+                w.danger = why;
+                record(p, "no-save", fmt::format("{} (death in {} steps)", why, deathIn));
+            }
+        };
 
         int hold = std::max(1, c.saveHold);
         // Ground modes: the click has to survive the whole jump, not just its
@@ -400,6 +415,7 @@ class $modify(AssistLayer, GJBaseGameLayer) {
                               j + 1, modeName(modeOf(p)), deathIn);
                 }
                 // Try again next step: clicking a little later may survive.
+                noSave("no click right now survives");
                 return;
             }
         }
@@ -417,6 +433,7 @@ class $modify(AssistLayer, GJBaseGameLayer) {
                     log::info("[Assist] P{} {}: death in {} steps, clicking now leads to a dead end, waiting",
                               j + 1, modeName(modeOf(p)), deathIn);
                 }
+                noSave("clicking now leads to a dead end");
                 return;
             }
             if (c.debug && res == Plan::OutOfTime) {
@@ -435,6 +452,10 @@ class $modify(AssistLayer, GJBaseGameLayer) {
         }
         f->saveCooldown[j] = step + hold + 2;
         if (isGroundMode(p)) f->swallowUntil[j] = step + deathIn + SAVE_SWALLOW_SLACK;
+
+        watch(j).clickStep = step;
+        watch(j).danger.clear();
+        record(p, "auto-click", fmt::format("death was {} steps away", deathIn));
 
         stats().saved++;
         stats().last = fmt::format("auto-click ({} steps from death)", deathIn);
@@ -478,6 +499,7 @@ class $modify(AssistLayer, GJBaseGameLayer) {
         s.rescueReleaseAt = step + std::max(1, s.tapLen);
 
         stats().buffered++;
+        record(p, "buffered", fmt::format("{} after {} steps early", onRing ? "orb" : "landing", waited));
         stats().last = fmt::format("{} buffered ({} early)", onRing ? "orb" : "landing", waited);
         overlayRefresh();
         if (cfg().debug) {

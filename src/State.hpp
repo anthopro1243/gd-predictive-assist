@@ -34,6 +34,7 @@ struct Settings {
 
     bool showPath = false;
     bool debug = false;
+    bool record = true;
 };
 
 Settings& cfg();
@@ -68,6 +69,21 @@ struct SimResult {
 bool simActive();
 bool simReady(PlayLayer* pl);
 SimResult simulate(PlayLayer* pl, PlayerObject* real, std::vector<SimEvent> const& events, int totalTicks, bool recordPath);
+
+// ---- attempt recorder ------------------------------------------------------
+
+// What the assist last saw for one player, used to explain deaths.
+struct Watch {
+    int step = 0;
+    int dangerStep = -100000;  // last step the idle simulation saw a death coming
+    int blindStep = -100000;   // last step the simulation hit something it cannot model
+    int clickStep = -100000;   // last auto-click
+    std::string danger;        // why the last seen danger got no auto-click
+};
+
+Watch& watch(int i);
+void record(PlayerObject* p, char const* event, std::string const& detail = "");
+void recordFlush();
 
 // ---- stats and overlay -----------------------------------------------------
 

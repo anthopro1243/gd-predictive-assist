@@ -5,7 +5,7 @@
     },
     "id": "anthonyvp.predictive-assist",
     "name": "Predictive Assist",
-    "version": "v0.4.0",
+    "version": "v0.5.0",
     "developer": "Anthony",
     "description": "Bot-assisted play: clicks for you right before a death, holds back clicks that would kill you when waiting a step or two survives, and replays early clicks on landings and orbs.",
     "settings": {
@@ -143,6 +143,12 @@
             "name": "Show predicted path",
             "description": "Draws the simulated path for the last assisted input: green when the chosen timing survives, red when nothing survived. If the green path does not match where you actually go, the simulation is wrong in that spot.",
             "default": false
+        },
+        "record": {
+            "type": "bool",
+            "name": "Record attempts",
+            "description": "Writes every click, assist action and death to attempts.csv in the mod's save folder, with a guess at why the assist did not save you. Use it to see where and why you die.",
+            "default": true
         },
         "debug": {
             "type": "bool",
