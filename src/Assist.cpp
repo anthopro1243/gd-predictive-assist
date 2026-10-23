@@ -42,6 +42,8 @@ struct EarlyState {
 };
 
 constexpr int JUMP_BUTTON = 1;
+constexpr int SAVE_JUMP_STEPS = 110;    // a full cube jump at 240 TPS is about 100 steps
+constexpr int SAVE_SWALLOW_SLACK = 8;   // steps past the avoided death a late click is still dropped
 
 }
 
@@ -52,6 +54,8 @@ class $modify(AssistLayer, GJBaseGameLayer) {
         std::deque<Queued> queue[2];
         EarlyState early[2];
         int saveCooldown[2] = {0, 0};
+        int swallowUntil[2] = {0, 0};      // after a save, the player's own late click is dropped
+        bool swallowRelease[2] = {false, false};
         int rateCount = 0;
         std::chrono::steady_clock::time_point rateStart;
     };
@@ -82,6 +86,8 @@ class $modify(AssistLayer, GJBaseGameLayer) {
             f->queue[i].clear();
             f->early[i] = EarlyState();
             f->saveCooldown[i] = 0;
+            f->swallowUntil[i] = 0;
+            f->swallowRelease[i] = false;
         }
         // A held-back release may never have reached the game. Releasing a
         // button that is not held is harmless.
@@ -213,6 +219,22 @@ class $modify(AssistLayer, GJBaseGameLayer) {
         int nextStep = f->step + 1;
         auto& q = f->queue[i];
 
+        // Right after an auto-click in a ground mode, the player's own click
+        // for the same obstacle is late by definition. Delivering it would
+        // buffer a second jump, so drop it and its release.
+        if (isGroundMode(p)) {
+            if (down && nextStep <= f->swallowUntil[i]) {
+                f->swallowUntil[i] = 0;
+                f->swallowRelease[i] = true;
+                if (cfg().debug) log::info("[Assist] P{} late click after auto-click dropped", i + 1);
+                return;
+            }
+            if (!down && f->swallowRelease[i]) {
+                f->swallowRelease[i] = false;
+                return;
+            }
+        }
+
         // Keep order: a new input never fires before one already waiting, and
         // a release lands at least one step after its press.
         int minDelay = 0;
@@ -326,7 +348,10 @@ class $modify(AssistLayer, GJBaseGameLayer) {
         if (deathIn < 0) return;
 
         int hold = std::max(1, c.saveHold);
-        int look = std::max(isGroundMode(p) ? c.lookGround : c.lookFly, hold + 1);
+        // Ground modes: the click has to survive the whole jump, not just its
+        // start, or it jumps over one spike and lands on the next.
+        int look = isGroundMode(p) ? std::max(c.lookGround, SAVE_JUMP_STEPS) : c.lookFly;
+        look = std::max(look, hold + 1);
         std::vector<SimEvent> events = {{0, true}, {hold, false}};
         SimResult shown;
         for (auto sp : sims) {
@@ -351,6 +376,7 @@ class $modify(AssistLayer, GJBaseGameLayer) {
             f->early[k].rescueReleaseAt = step + hold;
         }
         f->saveCooldown[j] = step + hold + 2;
+        if (isGroundMode(p)) f->swallowUntil[j] = step + deathIn + SAVE_SWALLOW_SLACK;
 
         stats().saved++;
         stats().last = fmt::format("auto-click ({} steps from death)", deathIn);
