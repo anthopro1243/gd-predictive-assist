@@ -379,12 +379,17 @@ class $modify(AssistLayer, GJBaseGameLayer) {
 
         // Never fight the player: only step in while the button is up and
         // nothing of ours is waiting.
-        if (!f->queue[0].empty() || !f->queue[1].empty()) return;
+        char const* blocked = nullptr;
+        if (!f->queue[0].empty() || !f->queue[1].empty()) blocked = "your input is queued";
         for (auto sp : sims) {
             int k = sp == m_player1 ? 0 : 1;
             auto const& s = f->early[k];
-            if (s.held || s.pending || s.rescueHeld || holdingJump(sp)) return;
+            if (s.held) blocked = "you are holding the button";
+            else if (holdingJump(sp)) blocked = "the game thinks the button is held";
+            else if (s.pending || s.rescueHeld) blocked = "an earlier assist input is active";
         }
+        // Only the recorder needs to know about dangers while blocked.
+        if (blocked && !c.record) return;
 
         int deathIn = -1;
         for (auto sp : sims) {
@@ -394,13 +399,16 @@ class $modify(AssistLayer, GJBaseGameLayer) {
         }
         if (deathIn < 0) return;
         watch(j).dangerStep = f->step;
-        auto noSave = [&](char const* why) {
-            auto& w = watch(j);
-            if (w.danger != why) {
-                w.danger = why;
-                record(p, "no-save", fmt::format("{} (death in {} steps)", why, deathIn));
-            }
+        // Logged every step while in danger, so a recorded session shows the
+        // whole lead-up to a death.
+        auto noSave = [&](char const* why, std::string const& extra = "") {
+            watch(j).danger = why;
+            record(p, "no-save", fmt::format("{} (death in {} steps){}", why, deathIn, extra));
         };
+        if (blocked) {
+            noSave(blocked);
+            return;
+        }
 
         int hold = std::max(1, c.saveHold);
         // Ground modes: the click has to survive the whole jump, not just its
@@ -418,7 +426,8 @@ class $modify(AssistLayer, GJBaseGameLayer) {
                               j + 1, modeName(modeOf(p)), deathIn);
                 }
                 // Try again next step: clicking a little later may survive.
-                noSave("no click right now survives");
+                noSave("no click right now survives",
+                       fmt::format("; clicking now dies after {} steps", r.ticks));
                 return;
             }
         }
