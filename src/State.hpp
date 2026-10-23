@@ -101,6 +101,7 @@ void learnLoadLevel(std::string const& level);
 void learnFeed(char const* event, PlayerObject* p, int step, std::string const& detail);
 // First window that overlaps [x - after, x + before] around the player.
 LearnWindow const* learnWindowNear(float x, float before, float after);
+int learnWindowCount();
 
 // ---- stats and overlay -----------------------------------------------------
 

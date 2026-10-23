@@ -51,6 +51,17 @@ std::map<int, Spot> g_spots;  // keyed by x * 10, rounded
 int g_goodTotal = 0;
 std::vector<LearnWindow> g_windows;
 
+// A start-position copy is usually named after the level ("Kuzureta
+// startpos"); positions match, so it shares the original's data and back.
+bool sameLevel(std::string const& a, std::string const& b) {
+    if (a == b) return true;
+    auto prefixOf = [](std::string const& shortName, std::string const& longName) {
+        return longName.size() > shortName.size() + 1 && longName.compare(0, shortName.size(), shortName) == 0 &&
+               longName[shortName.size()] == ' ';
+    };
+    return prefixOf(a, b) || prefixOf(b, a);
+}
+
 bool groundModeName(std::string const& m) {
     return m == "cube" || m == "ball" || m == "robot" || m == "spider";
 }
@@ -150,7 +161,7 @@ void learnLoadLevel(std::string const& level) {
         std::stringstream ss(line);
         std::string cell;
         while (std::getline(ss, cell, ',')) f.push_back(cell);
-        if (f.size() < 7 || f[0] != level) continue;
+        if (f.size() < 7 || !sameLevel(f[0], level)) continue;
         // Rows from before the player-2 key fix have no position.
         if (f[5].find("-p2") != std::string::npos) continue;
         feed(f[6], std::strtof(f[3].c_str(), nullptr), f[5], std::atoi(f[2].c_str()),
@@ -165,6 +176,8 @@ void learnLoadLevel(std::string const& level) {
 void learnFeed(char const* event, PlayerObject* p, int step, std::string const& detail) {
     feed(event, p->getPositionX(), modeName(modeOf(p)), step, detail);
 }
+
+int learnWindowCount() { return static_cast<int>(g_windows.size()); }
 
 LearnWindow const* learnWindowNear(float x, float before, float after) {
     for (auto const& w : g_windows) {

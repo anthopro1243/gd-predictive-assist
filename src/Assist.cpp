@@ -143,7 +143,6 @@ class $modify(AssistLayer, GJBaseGameLayer) {
             if (m_player1) m_player1->releaseButton(PlayerButton::Jump);
             if (m_player2) m_player2->releaseButton(PlayerButton::Jump);
         }
-        stats() = Stats();
         overlayClearPath();
         overlayRefresh();
     }

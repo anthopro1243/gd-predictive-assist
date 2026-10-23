@@ -37,7 +37,8 @@ void overlayRefresh() {
     if (!show) return;
 
     auto const& s = stats();
-    std::string text = fmt::format("Bot-assisted\nlearned {}  saved {}  delayed {}  buffered {}", s.learned, s.saved, s.delayed, s.buffered);
+    std::string text = fmt::format("Bot-assisted ({} learned spots)\nthis session: learned {}  saved {}  delayed {}  buffered {}",
+                                   learnWindowCount(), s.learned, s.saved, s.delayed, s.buffered);
     if (!s.last.empty()) text += "\nlast: " + s.last;
     g_label->setString(text.c_str());
 }
