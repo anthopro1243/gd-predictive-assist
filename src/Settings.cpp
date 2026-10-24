@@ -39,6 +39,7 @@ void loadSettings() {
     s.autoSave = getBool("auto-save");
     s.saveWindow = getInt("save-window");
     s.saveHold = getInt("save-hold");
+    s.saveFly = getBool("save-fly");
     s.planAhead = getInt("plan-ahead");
     s.showPath = getBool("show-path");
     s.debug = getBool("debug");
@@ -86,7 +87,7 @@ $on_mod(Loaded) {
     for (auto key : {"enabled", "show-label", "predictive", "assist-releases",
                      "predict-cube", "predict-ship", "predict-ball", "predict-ufo",
                      "predict-wave", "predict-robot", "predict-spider", "predict-swing",
-                     "early-buffer", "auto-save", "show-path", "debug", "record", "learn", "learn-block"}) {
+                     "early-buffer", "auto-save", "show-path", "debug", "record", "learn", "learn-block", "save-fly"}) {
         listenForSettingChanges<bool>(key, [](bool) { loadSettings(); overlayRefresh(); });
     }
     for (auto key : {"max-delay", "lookahead-ground", "lookahead-fly", "early-window",

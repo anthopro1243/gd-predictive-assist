@@ -30,6 +30,7 @@ struct Settings {
     bool autoSave = true;
     int saveWindow = 10;       // steps before a death the mod may click for you
     int saveHold = 6;          // steps the auto-click holds the button
+    bool saveFly = false;      // auto-click in ship, UFO, wave and swing
     int planAhead = 240;       // ground modes: steps an auto-click must leave a way through
 
     bool showPath = false;
@@ -96,15 +97,16 @@ struct LearnWindow {
     float hi;   // x of the latest one
     int hold;   // typical hold length of those clicks, in steps
     int n;      // how many good clicks it is based on
+    int yBucket;  // height band the clicks were made at
 };
 
 void learnLoadLevel(std::string const& level);
 void learnFeed(char const* event, PlayerObject* p, int step, std::string const& detail);
 // First window that overlaps [x - after, x + before] around the player.
-LearnWindow const* learnWindowNear(float x, float before, float after);
+LearnWindow const* learnWindowNear(float x, float y, float before, float after);
 int learnWindowCount();
 // A click here has always killed the player, and not clicking here has not.
-bool learnIsBadClick(float x);
+bool learnIsBadClick(float x, float y);
 
 // ---- stats and overlay -----------------------------------------------------
 

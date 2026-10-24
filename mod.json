@@ -5,7 +5,7 @@
     },
     "id": "anthonyvp.predictive-assist",
     "name": "Predictive Assist",
-    "version": "v0.8.1",
+    "version": "v0.9.0",
     "developer": "Anthony",
     "description": "Bot-assisted play: clicks for you right before a death, holds back clicks that would kill you when waiting a step or two survives, and replays early clicks on landings and orbs.",
     "settings": {
@@ -29,7 +29,7 @@
         "sec-learn": {
             "type": "title",
             "name": "Learn from my attempts",
-            "description": "Uses your recorded attempts on this level. Where your clicks have worked before, early clicks are held back to that spot and, if you have not clicked by the end of it, the mod clicks for you. Cube, ball, robot and spider. Needs Record attempts on to keep learning."
+            "description": "Uses your recorded attempts on this level. Where your clicks have worked before, early clicks are held back to that spot and, if you have not clicked by the end of it, the mod clicks for you. Cube, ball, robot, spider and UFO, matched by height as well as position. Needs Record attempts on to keep learning."
         },
         "learn": {
             "type": "bool",
@@ -60,6 +60,12 @@
             "type": "bool",
             "name": "Auto-click save",
             "default": true
+        },
+        "save-fly": {
+            "type": "bool",
+            "name": "Auto-click in ship, UFO, wave, swing",
+            "description": "Off by default: in flying modes the simulation guesses what you do after the click, and recorded sessions showed these auto-clicks killing you more often than saving you.",
+            "default": false
         },
         "save-window": {
             "type": "int",

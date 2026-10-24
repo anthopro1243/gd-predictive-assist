@@ -311,15 +311,16 @@ class $modify(AssistLayer, GJBaseGameLayer) {
         // A learned window near this press decides its timing: hold an early
         // press back to where clicks have worked before. Inside a window the
         // press goes through as is.
-        if (down && i == 0 && cfg().learn && isGroundMode(p) && f->dx > 0.f) {
+        if (down && i == 0 && cfg().learn && learnable(p) && f->dx > 0.f) {
             float x = p->getPositionX();
-            if (auto w = learnWindowNear(x, cfg().learnEarly * f->dx, 0.f)) {
+            float y = p->getPositionY();
+            if (auto w = learnWindowNear(x, y, cfg().learnEarly * f->dx, 0.f)) {
                 learned = true;
                 if (x < w->lo) {
                     int d = static_cast<int>(std::ceil((w->lo - x) / f->dx));
                     delay = std::max(minDelay, d);
                 }
-            } else if (cfg().learnBlock && q.empty() && learnIsBadClick(x)) {
+            } else if (cfg().learnBlock && q.empty() && learnIsBadClick(x, y)) {
                 // Clicking here has always killed the player and passing
                 // without a click has worked: drop it and its release.
                 f->swallowRelease[i] = true;
@@ -409,6 +410,10 @@ class $modify(AssistLayer, GJBaseGameLayer) {
 
     // ---- learned windows -----------------------------------------------------
 
+    static bool learnable(PlayerObject* p) {
+        return isGroundMode(p) || modeOf(p) == Ufo;
+    }
+
     // Clicks for player 1 at the end of a learned window if they have not
     // clicked since just before it.
     void stepLearned() {
@@ -418,10 +423,10 @@ class $modify(AssistLayer, GJBaseGameLayer) {
         auto pl = PlayLayer::get();
         if (!c.enabled || !c.learn || !p || p->m_isDead || f->dx <= 0.f) return;
         if (!pl || pl->m_hasCompletedLevel || !m_levelSettings || m_levelSettings->m_platformerMode) return;
-        if (!isGroundMode(p)) return;
+        if (!learnable(p)) return;
 
         float x = p->getPositionX();
-        auto w = learnWindowNear(x, 0.f, 0.f);
+        auto w = learnWindowNear(x, p->getPositionY(), 0.f, 0.f);
         if (!w || w->hi <= f->learnedDoneHi) return;
         // Last step inside the window: the next one passes its end.
         if (x + f->dx <= w->hi) return;
@@ -474,7 +479,11 @@ class $modify(AssistLayer, GJBaseGameLayer) {
         if (f->step < f->saveCooldown[j]) return;
         // Where learned windows exist, they handle the timing; the simulation
         // is often a step off on tight clicks.
-        if (j == 0 && c.learn && learnWindowNear(p->getPositionX(), LEARN_SAVE_SHADOW, 0.f)) return;
+        if (j == 0 && c.learn && learnWindowNear(p->getPositionX(), p->getPositionY(), LEARN_SAVE_SHADOW, 0.f)) return;
+        // In flying modes the simulation's fixed hold rarely matches what the
+        // player does next; recorded sessions showed these auto-clicks killing
+        // more often than saving (ship 44%, UFO 67%).
+        if (!isGroundMode(p) && !c.saveFly) return;
 
         std::vector<PlayerObject*> sims = {p};
         if (j == 0 && sharedDual() && m_player2) sims.push_back(m_player2);
