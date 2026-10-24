@@ -332,6 +332,9 @@ class $modify(SimPlayLayer, PlayLayer) {
 
     void destroyPlayer(PlayerObject* player, GameObject* object) {
         if (g_active || (player && player == g_fake)) {
+            // The anti-cheat spike is a hidden hazard the real game ignores
+            // unless it has flagged a cheat; it is not a real death.
+            if (object && object == m_anticheatSpike) return;
             g_died = true;
             return;
         }

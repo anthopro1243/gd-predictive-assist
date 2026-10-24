@@ -36,8 +36,17 @@ void loadSettings() {
     for (int i = 0; i < ModeCount; i++) s.predictMode[i] = getBool(PREDICT_KEYS[i]);
     s.earlyBuffer = getBool("early-buffer");
     s.earlyWindow = getInt("early-window");
+    s.autoSave = getBool("auto-save");
+    s.saveWindow = getInt("save-window");
+    s.saveHold = getInt("save-hold");
+    s.saveFly = getBool("save-fly");
+    s.planAhead = getInt("plan-ahead");
     s.showPath = getBool("show-path");
     s.debug = getBool("debug");
+    s.record = getBool("record");
+    s.learn = getBool("learn");
+    s.learnEarly = getInt("learn-early");
+    s.learnBlock = getBool("learn-block");
 }
 
 Mode modeOf(PlayerObject* p) {
@@ -78,10 +87,11 @@ $on_mod(Loaded) {
     for (auto key : {"enabled", "show-label", "predictive", "assist-releases",
                      "predict-cube", "predict-ship", "predict-ball", "predict-ufo",
                      "predict-wave", "predict-robot", "predict-spider", "predict-swing",
-                     "early-buffer", "show-path", "debug"}) {
+                     "early-buffer", "auto-save", "show-path", "debug", "record", "learn", "learn-block", "save-fly"}) {
         listenForSettingChanges<bool>(key, [](bool) { loadSettings(); overlayRefresh(); });
     }
-    for (auto key : {"max-delay", "lookahead-ground", "lookahead-fly", "early-window"}) {
+    for (auto key : {"max-delay", "lookahead-ground", "lookahead-fly", "early-window",
+                     "save-window", "save-hold", "plan-ahead", "learn-early"}) {
         listenForSettingChanges<int64_t>(key, [](int64_t) { loadSettings(); });
     }
 
