@@ -1,10 +1,15 @@
 #include "State.hpp"
 
+#include <Geode/ui/Notification.hpp>
+
+#include <filesystem>
+
 namespace assist {
 
 static Settings g_settings;
 static Stats g_stats;
 static int g_resetEpoch = 0;
+static std::filesystem::file_time_type g_packageTime;
 
 static constexpr char const* PREDICT_KEYS[ModeCount] = {
     "predict-cube", "predict-ship", "predict-ball", "predict-ufo",
@@ -15,6 +20,18 @@ Settings& cfg() { return g_settings; }
 Stats& stats() { return g_stats; }
 int resetEpoch() { return g_resetEpoch; }
 void bumpResetEpoch() { g_resetEpoch++; }
+
+static std::filesystem::file_time_type packageTime() {
+    std::error_code ec;
+    auto t = std::filesystem::last_write_time(Mod::get()->getPackagePath(), ec);
+    return ec ? std::filesystem::file_time_type() : t;
+}
+
+bool modUpdatedSinceLaunch() {
+    auto t = packageTime();
+    return t != std::filesystem::file_time_type() && g_packageTime != std::filesystem::file_time_type() &&
+           t != g_packageTime;
+}
 
 static int getInt(char const* key) {
     return static_cast<int>(Mod::get()->getSettingValue<int64_t>(key));
@@ -28,6 +45,7 @@ void loadSettings() {
     auto& s = g_settings;
     s.enabled = getBool("enabled");
     s.showLabel = getBool("show-label");
+    s.rawFly = getBool("raw-fly");
     s.predictive = getBool("predictive");
     s.maxDelay = getInt("max-delay");
     s.lookGround = getInt("lookahead-ground");
@@ -36,8 +54,17 @@ void loadSettings() {
     for (int i = 0; i < ModeCount; i++) s.predictMode[i] = getBool(PREDICT_KEYS[i]);
     s.earlyBuffer = getBool("early-buffer");
     s.earlyWindow = getInt("early-window");
+    s.autoSave = getBool("auto-save");
+    s.saveWindow = getInt("save-window");
+    s.saveHold = getInt("save-hold");
+    s.saveFly = getBool("save-fly");
+    s.planAhead = getInt("plan-ahead");
     s.showPath = getBool("show-path");
     s.debug = getBool("debug");
+    s.record = getBool("record");
+    s.learn = getBool("learn");
+    s.learnEarly = getInt("learn-early");
+    s.learnBlock = getBool("learn-block");
 }
 
 Mode modeOf(PlayerObject* p) {
@@ -58,6 +85,14 @@ bool isGroundMode(PlayerObject* p) {
     }
 }
 
+bool isRawMode(PlayerObject* p) {
+    if (!g_settings.rawFly) return false;
+    switch (modeOf(p)) {
+        case Ship: case Ufo: case Wave: case Swing: return true;
+        default: return false;
+    }
+}
+
 char const* modeName(Mode m) {
     static constexpr char const* NAMES[ModeCount] = {
         "cube", "ship", "ball", "ufo", "wave", "robot", "spider", "swing",
@@ -74,16 +109,27 @@ int ringsTouching(PlayerObject* p) {
 $on_mod(Loaded) {
     using namespace assist;
     loadSettings();
+    g_packageTime = packageTime();
 
     for (auto key : {"enabled", "show-label", "predictive", "assist-releases",
                      "predict-cube", "predict-ship", "predict-ball", "predict-ufo",
                      "predict-wave", "predict-robot", "predict-spider", "predict-swing",
-                     "early-buffer", "show-path", "debug"}) {
+                     "early-buffer", "auto-save", "show-path", "debug", "record", "learn", "learn-block", "save-fly", "raw-fly"}) {
         listenForSettingChanges<bool>(key, [](bool) { loadSettings(); overlayRefresh(); });
     }
-    for (auto key : {"max-delay", "lookahead-ground", "lookahead-fly", "early-window"}) {
+    for (auto key : {"max-delay", "lookahead-ground", "lookahead-fly", "early-window",
+                     "save-window", "save-hold", "plan-ahead", "learn-early"}) {
         listenForSettingChanges<int64_t>(key, [](int64_t) { loadSettings(); });
     }
+
+    listenForKeybindSettingPresses("toggle-key", [](geode::Keybind const&, bool down, bool repeat, double) {
+        if (!down || repeat) return false;
+        bool on = !Mod::get()->getSettingValue<bool>("enabled");
+        Mod::get()->setSettingValue<bool>("enabled", on);
+        Notification::create(on ? "Assist on" : "Assist off (raw input)",
+                             on ? NotificationIcon::Success : NotificationIcon::Info, 1.f)->show();
+        return false;
+    });
 
     log::info("[Assist] loaded");
 }

@@ -4,16 +4,27 @@
 //    next physics step. If that dies within the look-ahead but holding it back
 //    1..N steps survives, hold it back by the smallest such delay.
 //
-// 2. Early-click buffer: a press in the air (cube, ball, robot, spider) that
+// 2. Auto-click save: every physics step while the button is up, simulate
+//    doing nothing. If that dies within the save window but a click right now
+//    survives, click for the player. This is what helps with late clicks.
+//
+// 3. Early-click buffer: a press in the air (cube, ball, robot, spider) that
 //    is released before landing is replayed when the player touches the ground
 //    or an orb within the window, keeping the original tap length. This covers
 //    orbs, which the simulation does not model.
+//
+// With raw input on (the default), ship, UFO, wave and swing inputs skip all
+// of this and go straight to the game: those modes are flown by hold length
+// or flap rhythm, and any delay both lags the ship and squashes fast taps into
+// 1-step taps. In UFO an extra click is an extra flap: learned clicks landed
+// just before the player's own click and doubled it.
 
 #include "State.hpp"
 
 #include <Geode/modify/GJBaseGameLayer.hpp>
 
 #include <chrono>
+#include <cmath>
 #include <deque>
 
 using namespace assist;
@@ -23,6 +34,7 @@ namespace {
 struct Queued {
     int fireStep;
     bool down;
+    bool p1Key;  // the flag the game sent, passed back unchanged
 };
 
 struct EarlyState {
@@ -39,6 +51,53 @@ struct EarlyState {
 
 constexpr int JUMP_BUTTON = 1;
 
+// Set while the assist hands an input to the game. Calling the original
+// handleButton from outside the hook (as processCommands does for held-back
+// inputs) enters the hook chain from the top, so without this a delayed click
+// was checked, and delayed, a second time.
+bool g_delivering = false;
+constexpr int SAVE_JUMP_STEPS = 110;    // a full cube jump at 240 TPS is about 100 steps
+constexpr int SAVE_SWALLOW_SLACK = 8;
+constexpr int LEARN_SWALLOW_STEPS = 24;     // a click this soon after a learned click is the same click, late
+constexpr float LEARN_SAVE_SHADOW = 80.f;   // no simulation auto-click this close before a learned window   // steps past the avoided death a late click is still dropped
+
+// Plan-ahead search for ground-mode auto-clicks.
+constexpr int PLAN_DEPTH = 2;           // follow-up clicks tried after the auto-click
+constexpr int PLAN_STRIDE = 6;          // steps between follow-up click times tried
+constexpr int PLAN_BUDGET_US = 1500;    // search time per physics step before giving up
+constexpr int PLAN_LAST_CHANCE = 2;     // this close to death, click even into a dead end
+
+enum class Plan { Viable, DeadEnd, OutOfTime };
+
+using PlanClock = std::chrono::steady_clock;
+
+// Is there a way to survive `horizon` steps that starts with `events`, adding
+// up to `depth` more clicks? Follow-up clicks are tried latest first, since a
+// click just before the death is the usual way past it.
+Plan findPlan(PlayLayer* pl, std::vector<PlayerObject*> const& sims, std::vector<SimEvent>& events,
+              int horizon, int depth, int hold, PlanClock::time_point deadline) {
+    if (PlanClock::now() > deadline) return Plan::OutOfTime;
+
+    int diedAt = -1;
+    for (auto sp : sims) {
+        auto r = simulate(pl, sp, events, horizon, false);
+        if (r.died) diedAt = diedAt < 0 ? r.ticks : std::min(diedAt, r.ticks);
+    }
+    if (diedAt < 0) return Plan::Viable;
+    if (depth == 0) return Plan::DeadEnd;
+
+    int earliest = events.empty() ? 0 : events.back().tick + 1;
+    for (int t = diedAt - 1; t >= earliest; t -= PLAN_STRIDE) {
+        events.push_back({t, true});
+        events.push_back({t + hold, false});
+        auto res = findPlan(pl, sims, events, horizon, depth - 1, hold, deadline);
+        events.pop_back();
+        events.pop_back();
+        if (res != Plan::DeadEnd) return res;
+    }
+    return Plan::DeadEnd;
+}
+
 }
 
 class $modify(AssistLayer, GJBaseGameLayer) {
@@ -47,6 +106,15 @@ class $modify(AssistLayer, GJBaseGameLayer) {
         int epoch = -1;
         std::deque<Queued> queue[2];
         EarlyState early[2];
+        int saveCooldown[2] = {0, 0};
+        int swallowUntil[2] = {0, 0};      // after a save, the player's own late click is dropped
+        bool swallowRelease[2] = {false, false};
+        int pressShift[2] = {0, 0};        // steps the last press was held back; its release keeps the tap length
+        // Learned windows (player 1 only).
+        float lastX = 0.f;
+        float dx = 0.f;                    // x moved per physics step
+        float lastPressX = -1e9f;          // where the last press reached the game
+        float learnedDoneHi = -1e9f;       // window already clicked for this attempt
         int rateCount = 0;
         std::chrono::steady_clock::time_point rateStart;
     };
@@ -76,14 +144,19 @@ class $modify(AssistLayer, GJBaseGameLayer) {
             if (!f->queue[i].empty() || f->early[i].rescueHeld) owedRelease = true;
             f->queue[i].clear();
             f->early[i] = EarlyState();
+            f->saveCooldown[i] = 0;
+            f->swallowUntil[i] = 0;
+            f->swallowRelease[i] = false;
+            f->pressShift[i] = 0;
         }
+        f->lastPressX = -1e9f;
+        f->learnedDoneHi = -1e9f;
         // A held-back release may never have reached the game. Releasing a
         // button that is not held is harmless.
         if (owedRelease) {
             if (m_player1) m_player1->releaseButton(PlayerButton::Jump);
             if (m_player2) m_player2->releaseButton(PlayerButton::Jump);
         }
-        stats() = Stats();
         overlayClearPath();
         overlayRefresh();
     }
@@ -92,7 +165,7 @@ class $modify(AssistLayer, GJBaseGameLayer) {
 
     // Hands an input to the game and updates early-buffer bookkeeping.
     // `tick` is the physics step the game will apply it on.
-    void deliver(int i, bool down, int tick) {
+    void deliver(int i, bool down, int tick, bool p1Key) {
         auto f = m_fields.operator->();
 
         int first = i, last = i;
@@ -104,6 +177,7 @@ class $modify(AssistLayer, GJBaseGameLayer) {
             auto& s = f->early[j];
 
             if (down) {
+                if (j == 0) f->lastPressX = p->getPositionX();
                 s.held = true;
                 s.pressStep = tick;
                 bool early = cfg().earlyBuffer && cfg().earlyWindow > 0 &&
@@ -117,7 +191,19 @@ class $modify(AssistLayer, GJBaseGameLayer) {
             }
         }
 
-        GJBaseGameLayer::handleButton(down, JUMP_BUTTON, i == 0);
+        g_delivering = true;
+        GJBaseGameLayer::handleButton(down, JUMP_BUTTON, p1Key);
+        g_delivering = false;
+    }
+
+    // Sends every held-back input now, in order, on step `tick`.
+    void flushQueue(int i, int tick) {
+        auto& q = m_fields->queue[i];
+        while (!q.empty()) {
+            auto item = q.front();
+            q.pop_front();
+            deliver(i, item.down, tick, item.p1Key);
+        }
     }
 
     // ---- predictive delay --------------------------------------------------
@@ -188,8 +274,19 @@ class $modify(AssistLayer, GJBaseGameLayer) {
     // ---- hooks -------------------------------------------------------------
 
     void handleButton(bool down, int button, bool isPlayer1) {
+        if (g_delivering) {
+            GJBaseGameLayer::handleButton(down, button, isPlayer1);
+            return;
+        }
         if (simActive() || button != JUMP_BUTTON || !cfg().enabled || !isPlayLayer() ||
             !m_levelSettings || m_levelSettings->m_platformerMode) {
+            // Switched off with inputs still held back: send those first, so
+            // this one cannot overtake them (a release before its press).
+            if (!simActive() && button == JUMP_BUTTON && isPlayLayer()) {
+                syncReset();
+                flushQueue(0, m_fields->step + 1);
+                flushQueue(1, m_fields->step + 1);
+            }
             GJBaseGameLayer::handleButton(down, button, isPlayer1);
             return;
         }
@@ -197,7 +294,9 @@ class $modify(AssistLayer, GJBaseGameLayer) {
         syncReset();
         auto f = m_fields.operator->();
         auto pl = PlayLayer::get();
-        int i = isPlayer1 ? 0 : 1;
+        // Outside two-player mode the player-2 keys (Up arrow, W) also drive
+        // player 1, so only two-player mode splits inputs by player.
+        int i = (isPlayer1 || !m_levelSettings->m_twoPlayerMode) ? 0 : 1;
         auto p = playerAt(i);
         if (!p || p->m_isDead || pl->m_hasCompletedLevel) {
             GJBaseGameLayer::handleButton(down, button, isPlayer1);
@@ -207,6 +306,35 @@ class $modify(AssistLayer, GJBaseGameLayer) {
         int nextStep = f->step + 1;
         auto& q = f->queue[i];
 
+        if (isRawMode(p)) {
+            // Anything still held back goes first so order is kept, then this
+            // input, all on the next step.
+            flushQueue(i, nextStep);
+            f->swallowUntil[i] = 0;
+            f->swallowRelease[i] = false;
+            f->pressShift[i] = 0;
+            record(p, down ? "press" : "release", "");
+            deliver(i, down, nextStep, isPlayer1);
+            return;
+        }
+
+        // Right after a mod click, the player's own click for the same
+        // obstacle is late by definition. Delivering it would make a second
+        // jump or flap, so drop it and its release.
+        {
+            if (down && nextStep <= f->swallowUntil[i]) {
+                f->swallowUntil[i] = 0;
+                f->swallowRelease[i] = true;
+                if (cfg().debug) log::info("[Assist] P{} late click after auto-click dropped", i + 1);
+                record(p, "press", "dropped: late click right after an auto-click");
+                return;
+            }
+            if (!down && f->swallowRelease[i]) {
+                f->swallowRelease[i] = false;
+                return;
+            }
+        }
+
         // Keep order: a new input never fires before one already waiting, and
         // a release lands at least one step after its press.
         int minDelay = 0;
@@ -214,11 +342,45 @@ class $modify(AssistLayer, GJBaseGameLayer) {
             auto const& lastQ = q.back();
             minDelay = std::max(0, lastQ.fireStep - nextStep + (lastQ.down != down ? 1 : 0));
         }
+        // A release is held back as long as its press was, so a held-back tap
+        // keeps its length instead of being cut to a single step.
+        if (!down) minDelay = std::max(minDelay, f->pressShift[i]);
 
         int delay = minDelay;
-        if (shouldPredict(p, down) && simReady(pl)) {
+        bool learned = false;
+        // A learned window near this press decides its timing: hold an early
+        // press back to where clicks have worked before. Inside a window the
+        // press goes through as is.
+        if (down && i == 0 && cfg().learn && learnable(p) && f->dx > 0.f) {
+            float x = p->getPositionX();
+            float y = p->getPositionY();
+            if (auto w = learnWindowNear(x, y, cfg().learnEarly * f->dx, 0.f)) {
+                learned = true;
+                if (x < w->lo) {
+                    int d = static_cast<int>(std::ceil((w->lo - x) / f->dx));
+                    delay = std::max(minDelay, d);
+                }
+            } else if (cfg().learnBlock && q.empty() && learnIsBadClick(x, y)) {
+                // Clicking here has always killed the player and passing
+                // without a click has worked: drop it and its release.
+                f->swallowRelease[i] = true;
+                record(p, "press", "dropped: known bad click");
+                stats().blocked++;
+                stats().last = fmt::format("blocked bad click at {:.0f}", x);
+                overlayRefresh();
+                return;
+            }
+        }
+        if (!learned && shouldPredict(p, down) && simReady(pl)) {
             delay = chooseDelay(pl, i, down, minDelay);
         }
+
+        record(p, down ? "press" : "release",
+               delay > minDelay ? fmt::format("{}delayed {} steps", learned ? "learned " : "", delay - minDelay)
+                                : std::string());
+
+        if (down) f->pressShift[i] = delay;
+        else f->pressShift[i] = 0;
 
         if (delay > minDelay) {
             stats().delayed++;
@@ -227,15 +389,17 @@ class $modify(AssistLayer, GJBaseGameLayer) {
         }
 
         if (delay == 0 && q.empty()) {
-            deliver(i, down, nextStep);
+            deliver(i, down, nextStep, isPlayer1);
             return;
         }
-        q.push_back({nextStep + delay, down});
+        q.push_back({nextStep + delay, down, isPlayer1});
     }
 
     void processCommands(float dt, bool isHalfTick, bool isLastTick) {
         auto f = m_fields.operator->();
         f->step++;
+        watch(0).step = f->step;
+        watch(1).step = f->step;
 
         // Debug: report how many times per real second this runs, to confirm
         // one call per physics step (should match your TPS, 240 by default).
@@ -257,14 +421,21 @@ class $modify(AssistLayer, GJBaseGameLayer) {
         bool active = isPlayLayer() && !simActive();
         if (active) {
             syncReset();
+            if (m_player1) {
+                float x = m_player1->getPositionX();
+                float d = x - f->lastX;
+                if (d > 0.01f && d < 30.f) f->dx = d;
+                f->lastX = x;
+            }
             // Delayed inputs due this step go in before the game processes
             // its input queue.
             for (int i = 0; i < 2; i++) {
                 auto& q = f->queue[i];
                 while (!q.empty() && q.front().fireStep <= f->step) {
-                    bool down = q.front().down;
+                    auto item = q.front();
                     q.pop_front();
-                    deliver(i, down, f->step);
+                    deliver(i, item.down, f->step, item.p1Key);
+                    if (item.down) record(playerAt(i), "press-fired", "");
                 }
             }
         }
@@ -274,6 +445,209 @@ class $modify(AssistLayer, GJBaseGameLayer) {
         if (active) {
             stepEarly(0);
             stepEarly(1);
+            stepLearned();
+            stepSave(0);
+            stepSave(1);
+        }
+    }
+
+    // ---- learned windows -----------------------------------------------------
+
+    static bool learnable(PlayerObject* p) {
+        return isGroundMode(p) || (modeOf(p) == Ufo && !isRawMode(p));
+    }
+
+    // Clicks for player 1 at the end of a learned window if they have not
+    // clicked since just before it.
+    void stepLearned() {
+        auto const& c = cfg();
+        auto f = m_fields.operator->();
+        auto p = m_player1;
+        auto pl = PlayLayer::get();
+        if (!c.enabled || !c.learn || !p || p->m_isDead || f->dx <= 0.f) return;
+        if (!pl || pl->m_hasCompletedLevel || !m_levelSettings || m_levelSettings->m_platformerMode) return;
+        if (!learnable(p)) return;
+
+        float x = p->getPositionX();
+        auto w = learnWindowNear(x, p->getPositionY(), 0.f, 0.f);
+        if (!w || !w->modOk || w->hi <= f->learnedDoneHi) return;
+        // Last step inside the window: the next one passes its end.
+        if (x + f->dx <= w->hi) return;
+
+        f->learnedDoneHi = w->hi;
+        if (f->lastPressX >= w->lo - c.learnEarly * f->dx) return;  // the player already clicked for it
+        if (!f->queue[0].empty()) return;                              // a held-back click is about to land
+        auto const& s = f->early[0];
+        if (s.held || s.rescueHeld || holdingJump(p)) return;
+
+        std::vector<PlayerObject*> targets = {p};
+        if (sharedDual() && m_player2) targets.push_back(m_player2);
+        int step = f->step;
+        for (auto sp : targets) {
+            int k = sp == m_player1 ? 0 : 1;
+            sp->pushButton(PlayerButton::Jump);
+            f->early[k].rescueHeld = true;
+            f->early[k].rescueReleaseAt = step + w->hold;
+        }
+        f->lastPressX = x;
+        f->saveCooldown[0] = step + w->hold + 2;
+        f->swallowUntil[0] = step + LEARN_SWALLOW_STEPS;
+
+        watch(0).clickStep = step;
+        record(p, "learned-click", fmt::format("window {:.1f}-{:.1f} from {} good clicks", w->lo, w->hi, w->n));
+        stats().learned++;
+        stats().last = fmt::format("learned click at {:.0f}", x);
+        overlayRefresh();
+    }
+
+    // ---- auto-click save -----------------------------------------------------
+
+    bool holdingJump(PlayerObject* p) {
+        auto it = p->m_holdingButtons.find(static_cast<int>(PlayerButton::Jump));
+        return it != p->m_holdingButtons.end() && it->second;
+    }
+
+    void stepSave(int j) {
+        auto const& c = cfg();
+        if (!c.enabled || !c.autoSave || c.saveWindow <= 0) return;
+        if (!m_levelSettings || m_levelSettings->m_platformerMode) return;
+        // In shared dual mode player 1's button drives both; handle it once.
+        if (j == 1 && (!m_gameState.m_isDualMode || sharedDual())) return;
+
+        auto f = m_fields.operator->();
+        auto pl = PlayLayer::get();
+        auto p = playerAt(j);
+        if (!pl || !p || p->m_isDead || pl->m_hasCompletedLevel || !simReady(pl)) return;
+        if (!c.predictMode[modeOf(p)]) return;
+        if (f->step < f->saveCooldown[j]) return;
+        // Where learned windows exist, they handle the timing; the simulation
+        // is often a step off on tight clicks.
+        if (j == 0 && c.learn && learnWindowNear(p->getPositionX(), p->getPositionY(), LEARN_SAVE_SHADOW, 0.f)) return;
+        // In flying modes the simulation's fixed hold rarely matches what the
+        // player does next; recorded sessions showed these auto-clicks killing
+        // more often than saving (ship 44%, UFO 67%).
+        if (!isGroundMode(p) && !c.saveFly) return;
+        if (isRawMode(p)) return;
+
+        std::vector<PlayerObject*> sims = {p};
+        if (j == 0 && sharedDual() && m_player2) sims.push_back(m_player2);
+
+        // Never fight the player: only step in while the button is up and
+        // nothing of ours is waiting.
+        char const* blocked = nullptr;
+        if (!f->queue[0].empty() || !f->queue[1].empty()) blocked = "your input is queued";
+        for (auto sp : sims) {
+            int k = sp == m_player1 ? 0 : 1;
+            auto const& s = f->early[k];
+            if (s.held) blocked = "you are holding the button";
+            else if (holdingJump(sp)) blocked = "the game thinks the button is held";
+            else if (s.pending || s.rescueHeld) blocked = "an earlier assist input is active";
+        }
+        // Only the recorder needs to know about dangers while blocked.
+        if (blocked && !c.record) return;
+
+        int deathIn = -1;
+        for (auto sp : sims) {
+            auto idle = simulate(pl, sp, {}, c.saveWindow, false);
+            if (idle.died) deathIn = deathIn < 0 ? idle.ticks : std::min(deathIn, idle.ticks);
+            if (idle.unknown) watch(j).blindStep = f->step;
+        }
+        if (deathIn < 0) return;
+        watch(j).dangerStep = f->step;
+        // Logged every step while in danger, so a recorded session shows the
+        // whole lead-up to a death.
+        auto noSave = [&](char const* why, std::string const& extra = "") {
+            watch(j).danger = why;
+            record(p, "no-save", fmt::format("{} (death in {} steps){}", why, deathIn, extra));
+        };
+        if (blocked) {
+            noSave(blocked);
+            return;
+        }
+
+        int hold = std::max(1, c.saveHold);
+        // Ground modes: the click has to survive the whole jump, not just its
+        // start, or it jumps over one spike and lands on the next.
+        int look = isGroundMode(p) ? std::max(c.lookGround, SAVE_JUMP_STEPS) : c.lookFly;
+        look = std::max(look, hold + 1);
+        std::vector<SimEvent> events = {{0, true}, {hold, false}};
+        SimResult shown;
+        for (auto sp : sims) {
+            auto r = simulate(pl, sp, events, look, c.showPath && sp == p);
+            if (sp == p) shown = r;
+            if (r.died) {
+                if (c.debug) {
+                    log::info("[Assist] P{} {}: death in {} steps, clicking now doesn't survive either",
+                              j + 1, modeName(modeOf(p)), deathIn);
+                }
+                // Try again next step: clicking a little later may survive.
+                noSave("no click right now survives",
+                       fmt::format("; clicking now dies after {} steps", r.ticks));
+                return;
+            }
+        }
+        // Wait for the last step a click still survives, so a player who is
+        // about to click gets to do it themselves.
+        if (deathIn > 1) {
+            std::vector<SimEvent> later = {{1, true}, {1 + hold, false}};
+            bool laterOk = true;
+            for (auto sp : sims) {
+                if (simulate(pl, sp, later, look + 1, false).died) laterOk = false;
+            }
+            if (laterOk) {
+                noSave("waiting for the last safe moment");
+                return;
+            }
+        }
+        // Ground modes: clearing this obstacle is not enough if the jump lands
+        // somewhere with no way out. Look further ahead, allowing follow-up
+        // clicks, and hold off while this click only leads to a dead end; a
+        // later step may find a click that does not. If the search runs out of
+        // time, the basic check above stands.
+        if (isGroundMode(p) && c.planAhead > look) {
+            auto plan = events;
+            auto deadline = PlanClock::now() + std::chrono::microseconds(PLAN_BUDGET_US);
+            auto res = findPlan(pl, sims, plan, c.planAhead, PLAN_DEPTH, hold, deadline);
+            if (res == Plan::DeadEnd && deathIn > PLAN_LAST_CHANCE) {
+                if (c.debug) {
+                    log::info("[Assist] P{} {}: death in {} steps, clicking now leads to a dead end, waiting",
+                              j + 1, modeName(modeOf(p)), deathIn);
+                }
+                noSave("clicking now leads to a dead end");
+                return;
+            }
+            if (c.debug && res == Plan::OutOfTime) {
+                log::info("[Assist] P{} {}: plan-ahead ran out of time, using the short check", j + 1, modeName(modeOf(p)));
+            }
+        }
+
+        if (j == 0 && c.learn && learnAutoClickFails(p->getPositionX(), p->getPositionY())) {
+            noSave("auto-clicks here have killed you before");
+            return;
+        }
+
+        if (c.showPath) overlayShowPath(shown.path, false);
+
+        int step = f->step;
+        for (auto sp : sims) {
+            int k = sp == m_player1 ? 0 : 1;
+            sp->pushButton(PlayerButton::Jump);
+            f->early[k].rescueHeld = true;
+            f->early[k].rescueReleaseAt = step + hold;
+        }
+        f->saveCooldown[j] = step + hold + 2;
+        f->swallowUntil[j] = step + std::max(deathIn + SAVE_SWALLOW_SLACK, LEARN_SWALLOW_STEPS);
+
+        watch(j).clickStep = step;
+        watch(j).danger.clear();
+        record(p, "auto-click", fmt::format("death was {} steps away", deathIn));
+
+        stats().saved++;
+        stats().last = fmt::format("auto-click ({} steps from death)", deathIn);
+        overlayRefresh();
+        if (c.debug) {
+            log::info("[Assist] P{} {}: auto-click, death was {} steps away, held {} steps",
+                      j + 1, modeName(modeOf(p)), deathIn, hold);
         }
     }
 
@@ -310,6 +684,7 @@ class $modify(AssistLayer, GJBaseGameLayer) {
         s.rescueReleaseAt = step + std::max(1, s.tapLen);
 
         stats().buffered++;
+        record(p, "buffered", fmt::format("{} after {} steps early", onRing ? "orb" : "landing", waited));
         stats().last = fmt::format("{} buffered ({} early)", onRing ? "orb" : "landing", waited);
         overlayRefresh();
         if (cfg().debug) {

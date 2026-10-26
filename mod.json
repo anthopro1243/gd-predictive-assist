@@ -5,9 +5,9 @@
     },
     "id": "anthonyvp.predictive-assist",
     "name": "Predictive Assist",
-    "version": "v0.1.0",
+    "version": "v0.11.0",
     "developer": "Anthony",
-    "description": "Bot-assisted play: holds back clicks that would kill you when waiting a step or two survives, and replays early clicks on landings and orbs.",
+    "description": "Bot-assisted play: clicks for you right before a death, holds back clicks that would kill you when waiting a step or two survives, and replays early clicks on landings and orbs.",
     "settings": {
         "sec-general": {
             "type": "title",
@@ -20,16 +20,97 @@
             "description": "Master switch for everything below.",
             "default": true
         },
+        "toggle-key": {
+            "type": "keybind",
+            "name": "On/off key",
+            "description": "Turns the whole assist on or off while you play. A message shows which way it went.",
+            "default": "F8",
+            "category": "gameplay"
+        },
+        "raw-fly": {
+            "type": "bool",
+            "name": "Raw input in ship, UFO, wave, swing",
+            "description": "Clicks and releases in ship, UFO, wave and swing go straight to the game the moment you press, with nothing delayed, added or dropped. These modes are flown by how long you hold or by flap rhythm, so any delay makes the ship feel heavy, and an extra click in UFO is an extra flap. Turn off only to get predictive delay, learned clicks and auto-clicks back in these modes.",
+            "default": true
+        },
         "show-label": {
             "type": "bool",
             "name": "Show 'Bot-assisted' label",
             "description": "Shows a label in the top-left corner with how many inputs were delayed or buffered this attempt.",
             "default": true
         },
+        "sec-learn": {
+            "type": "title",
+            "name": "Learn from my attempts",
+            "description": "Uses your recorded attempts on this level. Where your clicks have worked before, early clicks are held back to that spot and, if you have not clicked by the end of it, the mod clicks for you. Cube, ball, robot and spider (and UFO when raw input is off), matched by height as well as position. Needs Record attempts on to keep learning.\n\nIf you click right after the mod clicked for you, your click is dropped so you never get a double jump or flap. Where the mod's own clicks have died more often than not (at least 3 times), it stops clicking there."
+        },
+        "learn": {
+            "type": "bool",
+            "name": "Learn from my attempts",
+            "default": true
+        },
+        "learn-early": {
+            "type": "int",
+            "name": "Learned: early window (steps)",
+            "description": "How early a click before a learned spot is held back instead of going through. 12 steps is about 50 ms at 240 TPS.",
+            "default": 12,
+            "min": 0,
+            "max": 40,
+            "control": { "input": true, "arrows": true, "slider": true }
+        },
+        "learn-block": {
+            "type": "bool",
+            "name": "Learned: block bad clicks",
+            "description": "Drops a click at a spot where clicking has killed you every time (at least 3 times) and getting past without clicking there has worked (at least 3 times). Clicks you made right after one of the mod's own clicks are not counted, since those deaths came from the double click.",
+            "default": true
+        },
+        "sec-save": {
+            "type": "title",
+            "name": "Auto-click save",
+            "description": "When you are about to die and a click right now would survive, the mod clicks for you. This is the part that helps when you click too late. It only steps in while you are not holding the button, and only if the simulation can see the death coming (it stops at orbs, pads and most portals)."
+        },
+        "auto-save": {
+            "type": "bool",
+            "name": "Auto-click save",
+            "default": true
+        },
+        "save-fly": {
+            "type": "bool",
+            "name": "Auto-click in ship, UFO, wave, swing",
+            "description": "Off by default: in flying modes the simulation guesses what you do after the click, and recorded sessions showed these auto-clicks killing you more often than saving you.",
+            "default": false
+        },
+        "save-window": {
+            "type": "int",
+            "name": "Save window (steps)",
+            "description": "How close to a death the mod may click for you. Bigger is stronger. 10 steps is about 40 ms at 240 TPS; 40 steps is about 170 ms, which will play most simple jumps for you.",
+            "default": 10,
+            "min": 1,
+            "max": 40,
+            "control": { "input": true, "arrows": true, "slider": true }
+        },
+        "save-hold": {
+            "type": "int",
+            "name": "Auto-click length (steps)",
+            "description": "How long the auto-click holds the button. Short is a tap; longer gives higher robot jumps and longer ship/UFO/swing climbs.",
+            "default": 6,
+            "min": 1,
+            "max": 40,
+            "control": { "input": true, "arrows": true, "slider": false }
+        },
+        "plan-ahead": {
+            "type": "int",
+            "name": "Plan ahead: cube, ball, robot, spider (steps)",
+            "description": "Before an auto-click, the mod checks this far ahead that the jump leaves a way through, allowing for the next couple of jumps. It skips jumps that land you in a dead end and waits for a better one. 240 steps is about one second at 240 TPS. 0 turns it off.",
+            "default": 240,
+            "min": 0,
+            "max": 480,
+            "control": { "input": true, "arrows": true, "slider": true }
+        },
         "sec-predict": {
             "type": "title",
             "name": "Predictive delay",
-            "description": "When you click or release, the mod simulates what happens. If doing it now kills you but waiting a few steps does not, the input waits for the first safe step.\n\nThe simulation stops at orbs, pads and most portals and lets those inputs through unchanged. The early-click buffer below covers orbs."
+            "description": "When you click or release, the mod simulates what happens. If doing it now kills you but waiting a few steps does not, the input waits for the first safe step.\n\nThe simulation stops at orbs, pads and most portals and lets those inputs through unchanged. The early-click buffer below covers orbs.\n\nShip, UFO, wave and swing are skipped while **Raw input in ship, UFO, wave, swing** is on."
         },
         "predictive": {
             "type": "bool",
@@ -39,10 +120,10 @@
         "max-delay": {
             "type": "int",
             "name": "Max delay (steps)",
-            "description": "How long an input may be held back. 3 steps is about 12 ms at 240 TPS.",
-            "default": 3,
+            "description": "How long an input may be held back. 5 steps is about 20 ms at 240 TPS.",
+            "default": 5,
             "min": 0,
-            "max": 8,
+            "max": 16,
             "control": { "input": true, "arrows": true, "slider": true }
         },
         "lookahead-ground": {
@@ -91,9 +172,9 @@
             "type": "int",
             "name": "Early window (steps)",
             "description": "How early a tap can be and still count. Larger windows can fire a tap meant for an orb on a landing that comes first.",
-            "default": 4,
+            "default": 6,
             "min": 0,
-            "max": 16,
+            "max": 24,
             "control": { "input": true, "arrows": true, "slider": true }
         },
         "sec-debug": {
@@ -107,10 +188,16 @@
             "description": "Draws the simulated path for the last assisted input: green when the chosen timing survives, red when nothing survived. If the green path does not match where you actually go, the simulation is wrong in that spot.",
             "default": false
         },
+        "record": {
+            "type": "bool",
+            "name": "Record attempts",
+            "description": "Writes every click, assist action and death to attempts.csv in the mod's save folder, with a guess at why the assist did not save you. Use it to see where and why you die.",
+            "default": true
+        },
         "debug": {
             "type": "bool",
             "name": "Debug logging",
-            "description": "Logs every delayed or buffered input to the Geode console.",
+            "description": "Logs every auto-click, delayed and buffered input to the Geode console.",
             "default": false
         }
     }
