@@ -5,7 +5,7 @@
     },
     "id": "anthonyvp.predictive-assist",
     "name": "Predictive Assist",
-    "version": "v0.9.0",
+    "version": "v0.10.0",
     "developer": "Anthony",
     "description": "Bot-assisted play: clicks for you right before a death, holds back clicks that would kill you when waiting a step or two survives, and replays early clicks on landings and orbs.",
     "settings": {
@@ -18,6 +18,19 @@
             "type": "bool",
             "name": "Enabled",
             "description": "Master switch for everything below.",
+            "default": true
+        },
+        "toggle-key": {
+            "type": "keybind",
+            "name": "On/off key",
+            "description": "Turns the whole assist on or off while you play. A message shows which way it went.",
+            "default": "F8",
+            "category": "gameplay"
+        },
+        "raw-fly": {
+            "type": "bool",
+            "name": "Raw input in ship, wave, swing",
+            "description": "Clicks and releases in ship, wave and swing go straight to the game the moment you press, with nothing delayed, merged or dropped. These modes are flown by how long you hold, so any delay makes the ship feel heavy and squashes fast taps. Turn off only to get predictive delay and auto-clicks back in these modes.",
             "default": true
         },
         "show-label": {
@@ -97,7 +110,7 @@
         "sec-predict": {
             "type": "title",
             "name": "Predictive delay",
-            "description": "When you click or release, the mod simulates what happens. If doing it now kills you but waiting a few steps does not, the input waits for the first safe step.\n\nThe simulation stops at orbs, pads and most portals and lets those inputs through unchanged. The early-click buffer below covers orbs."
+            "description": "When you click or release, the mod simulates what happens. If doing it now kills you but waiting a few steps does not, the input waits for the first safe step.\n\nThe simulation stops at orbs, pads and most portals and lets those inputs through unchanged. The early-click buffer below covers orbs.\n\nShip, wave and swing are skipped while **Raw input in ship, wave, swing** is on."
         },
         "predictive": {
             "type": "bool",

@@ -1,5 +1,7 @@
 #include "State.hpp"
 
+#include <Geode/ui/Notification.hpp>
+
 namespace assist {
 
 static Settings g_settings;
@@ -28,6 +30,7 @@ void loadSettings() {
     auto& s = g_settings;
     s.enabled = getBool("enabled");
     s.showLabel = getBool("show-label");
+    s.rawFly = getBool("raw-fly");
     s.predictive = getBool("predictive");
     s.maxDelay = getInt("max-delay");
     s.lookGround = getInt("lookahead-ground");
@@ -67,6 +70,14 @@ bool isGroundMode(PlayerObject* p) {
     }
 }
 
+bool isRawMode(PlayerObject* p) {
+    if (!g_settings.rawFly) return false;
+    switch (modeOf(p)) {
+        case Ship: case Wave: case Swing: return true;
+        default: return false;
+    }
+}
+
 char const* modeName(Mode m) {
     static constexpr char const* NAMES[ModeCount] = {
         "cube", "ship", "ball", "ufo", "wave", "robot", "spider", "swing",
@@ -87,13 +98,22 @@ $on_mod(Loaded) {
     for (auto key : {"enabled", "show-label", "predictive", "assist-releases",
                      "predict-cube", "predict-ship", "predict-ball", "predict-ufo",
                      "predict-wave", "predict-robot", "predict-spider", "predict-swing",
-                     "early-buffer", "auto-save", "show-path", "debug", "record", "learn", "learn-block", "save-fly"}) {
+                     "early-buffer", "auto-save", "show-path", "debug", "record", "learn", "learn-block", "save-fly", "raw-fly"}) {
         listenForSettingChanges<bool>(key, [](bool) { loadSettings(); overlayRefresh(); });
     }
     for (auto key : {"max-delay", "lookahead-ground", "lookahead-fly", "early-window",
                      "save-window", "save-hold", "plan-ahead", "learn-early"}) {
         listenForSettingChanges<int64_t>(key, [](int64_t) { loadSettings(); });
     }
+
+    listenForKeybindSettingPresses("toggle-key", [](geode::Keybind const&, bool down, bool repeat, double) {
+        if (!down || repeat) return false;
+        bool on = !Mod::get()->getSettingValue<bool>("enabled");
+        Mod::get()->setSettingValue<bool>("enabled", on);
+        Notification::create(on ? "Assist on" : "Assist off (raw input)",
+                             on ? NotificationIcon::Success : NotificationIcon::Info, 1.f)->show();
+        return false;
+    });
 
     log::info("[Assist] loaded");
 }

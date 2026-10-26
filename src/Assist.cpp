@@ -12,6 +12,10 @@
 //    is released before landing is replayed when the player touches the ground
 //    or an orb within the window, keeping the original tap length. This covers
 //    orbs, which the simulation does not model.
+//
+// With raw input on (the default), ship, wave and swing inputs skip all of
+// this and go straight to the game: those modes are flown by hold length, and
+// any delay both lags the ship and squashes fast taps into 1-step taps.
 
 #include "State.hpp"
 
@@ -103,6 +107,7 @@ class $modify(AssistLayer, GJBaseGameLayer) {
         int saveCooldown[2] = {0, 0};
         int swallowUntil[2] = {0, 0};      // after a save, the player's own late click is dropped
         bool swallowRelease[2] = {false, false};
+        int pressShift[2] = {0, 0};        // steps the last press was held back; its release keeps the tap length
         // Learned windows (player 1 only).
         float lastX = 0.f;
         float dx = 0.f;                    // x moved per physics step
@@ -140,6 +145,7 @@ class $modify(AssistLayer, GJBaseGameLayer) {
             f->saveCooldown[i] = 0;
             f->swallowUntil[i] = 0;
             f->swallowRelease[i] = false;
+            f->pressShift[i] = 0;
         }
         f->lastPressX = -1e9f;
         f->learnedDoneHi = -1e9f;
@@ -186,6 +192,16 @@ class $modify(AssistLayer, GJBaseGameLayer) {
         g_delivering = true;
         GJBaseGameLayer::handleButton(down, JUMP_BUTTON, p1Key);
         g_delivering = false;
+    }
+
+    // Sends every held-back input now, in order, on step `tick`.
+    void flushQueue(int i, int tick) {
+        auto& q = m_fields->queue[i];
+        while (!q.empty()) {
+            auto item = q.front();
+            q.pop_front();
+            deliver(i, item.down, tick, item.p1Key);
+        }
     }
 
     // ---- predictive delay --------------------------------------------------
@@ -262,6 +278,13 @@ class $modify(AssistLayer, GJBaseGameLayer) {
         }
         if (simActive() || button != JUMP_BUTTON || !cfg().enabled || !isPlayLayer() ||
             !m_levelSettings || m_levelSettings->m_platformerMode) {
+            // Switched off with inputs still held back: send those first, so
+            // this one cannot overtake them (a release before its press).
+            if (!simActive() && button == JUMP_BUTTON && isPlayLayer()) {
+                syncReset();
+                flushQueue(0, m_fields->step + 1);
+                flushQueue(1, m_fields->step + 1);
+            }
             GJBaseGameLayer::handleButton(down, button, isPlayer1);
             return;
         }
@@ -280,6 +303,18 @@ class $modify(AssistLayer, GJBaseGameLayer) {
 
         int nextStep = f->step + 1;
         auto& q = f->queue[i];
+
+        if (isRawMode(p)) {
+            // Anything still held back goes first so order is kept, then this
+            // input, all on the next step.
+            flushQueue(i, nextStep);
+            f->swallowUntil[i] = 0;
+            f->swallowRelease[i] = false;
+            f->pressShift[i] = 0;
+            record(p, down ? "press" : "release", "");
+            deliver(i, down, nextStep, isPlayer1);
+            return;
+        }
 
         // Right after an auto-click in a ground mode, the player's own click
         // for the same obstacle is late by definition. Delivering it would
@@ -305,6 +340,9 @@ class $modify(AssistLayer, GJBaseGameLayer) {
             auto const& lastQ = q.back();
             minDelay = std::max(0, lastQ.fireStep - nextStep + (lastQ.down != down ? 1 : 0));
         }
+        // A release is held back as long as its press was, so a held-back tap
+        // keeps its length instead of being cut to a single step.
+        if (!down) minDelay = std::max(minDelay, f->pressShift[i]);
 
         int delay = minDelay;
         bool learned = false;
@@ -338,6 +376,9 @@ class $modify(AssistLayer, GJBaseGameLayer) {
         record(p, down ? "press" : "release",
                delay > minDelay ? fmt::format("{}delayed {} steps", learned ? "learned " : "", delay - minDelay)
                                 : std::string());
+
+        if (down) f->pressShift[i] = delay;
+        else f->pressShift[i] = 0;
 
         if (delay > minDelay) {
             stats().delayed++;
@@ -484,6 +525,7 @@ class $modify(AssistLayer, GJBaseGameLayer) {
         // player does next; recorded sessions showed these auto-clicks killing
         // more often than saving (ship 44%, UFO 67%).
         if (!isGroundMode(p) && !c.saveFly) return;
+        if (isRawMode(p)) return;
 
         std::vector<PlayerObject*> sims = {p};
         if (j == 0 && sharedDual() && m_player2) sims.push_back(m_player2);
