@@ -4,6 +4,7 @@
 
 #include <Geode/modify/PauseLayer.hpp>
 #include <Geode/modify/PlayLayer.hpp>
+#include <Geode/ui/Notification.hpp>
 
 namespace {
 
@@ -37,7 +38,9 @@ void overlayRefresh() {
     if (!show) return;
 
     auto const& s = stats();
-    std::string text = fmt::format("Bot-assisted ({} learned spots)\nthis session: learned {}  blocked {}  saved {}  delayed {}  buffered {}",
+    std::string text;
+    if (modUpdatedSinceLaunch()) text = "OLD VERSION RUNNING: restart Geometry Dash\n";
+    text += fmt::format("Bot-assisted ({} learned spots)\nthis session: learned {}  blocked {}  saved {}  delayed {}  buffered {}",
                                    learnWindowCount(), s.learned, s.blocked, s.saved, s.delayed, s.buffered);
     if (!s.last.empty()) text += "\nlast: " + s.last;
     g_label->setString(text.c_str());
@@ -87,6 +90,11 @@ class $modify(OverlayPlayLayer, PlayLayer) {
 
         assist::stats() = assist::Stats();
         assist::overlayRefresh();
+
+        if (assist::modUpdatedSinceLaunch()) {
+            Notification::create("Predictive Assist was updated: restart Geometry Dash to use the new version",
+                                 NotificationIcon::Warning, 4.f)->show();
+        }
     }
 
     void onQuit() {

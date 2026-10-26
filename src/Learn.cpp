@@ -15,6 +15,11 @@
 //
 // This does not depend on the simulation, so it works on tight timings where
 // the simulation is a step off.
+//
+// The mod's own clicks are checked too. A player click that comes right after
+// a mod click is the same click, doubled; its outcome says nothing about the
+// spot, so it is not counted (it used to get correct clicks blocked as "bad").
+// Where the mod's clicks have mostly died, the mod stops clicking there.
 
 #include "State.hpp"
 
@@ -42,11 +47,19 @@ constexpr int BAD_MIN = 3;
 constexpr float PASS_CLEAR = 6.f;      // no click within this distance counts as passing without one
 constexpr int PASS_MIN = 3;
 
+// Mod clicks.
+constexpr int DOUBLE_STEPS = 24;       // a player click this soon after a mod click is the same click
+constexpr int MOD_FAIL_MIN = 3;        // mod clicks at a spot that must die before it stops clicking there
+constexpr float MOD_RADIUS = 3.f;
+
 struct Press {
     float x;
     float y;
     int step;
     int hold = 0;  // 0 = release not seen
+    bool mod = false;      // clicked by the mod
+    bool learned = false;  // the mod click was a learned-window click
+    bool ignored = false;  // doubled a mod click: not a sample
 };
 
 struct Attempt {
@@ -71,7 +84,29 @@ struct Finished {
 };
 
 std::vector<Finished> g_finished;  // every finished attempt, for the pass-without-click check
+
+struct ModClick {
+    float x;
+    int yBucket;
+    bool learned;   // learned window click, otherwise a simulation auto-click
+    bool survived;
+};
+std::vector<ModClick> g_modClicks;
 std::vector<LearnWindow> g_windows;
+
+// Mod clicks of one kind near (x, height bucket) that died and that worked.
+std::pair<int, int> modOutcomes(float lo, float hi, int yb, bool learned) {
+    int fails = 0, oks = 0;
+    for (auto const& c : g_modClicks) {
+        if (c.learned != learned || c.x < lo || c.x > hi || std::abs(c.yBucket - yb) > 1) continue;
+        (c.survived ? oks : fails)++;
+    }
+    return {fails, oks};
+}
+
+bool modClicksFail(std::pair<int, int> outcome) {
+    return outcome.first >= MOD_FAIL_MIN && outcome.first > outcome.second;
+}
 
 // A start-position copy is usually named after the level ("Kuzureta
 // startpos"); positions match, so it shares the original's data and back.
@@ -107,7 +142,9 @@ void rebuild() {
                 std::nth_element(holds.begin(), holds.begin() + holds.size() / 2, holds.end());
                 hold = std::clamp(holds[holds.size() / 2], 1, 40);
             }
-            g_windows.push_back({run.front().first, run.back().first, hold, n, runBucket});
+            float lo = run.front().first, hi = run.back().first;
+            bool modOk = !modClicksFail(modOutcomes(lo - MOD_RADIUS, hi + MOD_RADIUS, runBucket, true));
+            g_windows.push_back({lo, hi, hold, n, runBucket, modOk});
         }
         run.clear();
     };
@@ -135,6 +172,8 @@ void finish(float endX) {
     for (auto const& p : g_cur.presses) fin.pressX.push_back(p.x);
     g_finished.push_back(std::move(fin));
     for (auto const& p : g_cur.presses) {
+        if (p.mod) g_modClicks.push_back({p.x, yBucket(p.y), p.learned, endX > p.x + SURVIVE_DIST});
+        if (p.ignored) continue;
         auto& spot = g_spots[{yBucket(p.y), static_cast<int>(std::lround(p.x * 10.f))}];
         if (endX > p.x + SURVIVE_DIST) {
             spot.good++;
@@ -162,7 +201,19 @@ void feed(std::string const& event, float x, float y, std::string const& mode, i
         // Before v0.8.1 a held-back click was logged twice on the step it
         // landed; keep one.
         if (!g_cur.presses.empty() && g_cur.presses.back().step == step) return;
-        g_cur.presses.push_back({x, y, step});
+        Press press{x, y, step};
+        press.mod = event == "auto-click" || event == "learned-click";
+        press.learned = event == "learned-click";
+        if (!press.mod) {
+            for (auto it = g_cur.presses.rbegin(); it != g_cur.presses.rend(); ++it) {
+                if (step - it->step > DOUBLE_STEPS) break;
+                if (it->mod) {
+                    press.ignored = true;
+                    break;
+                }
+            }
+        }
+        g_cur.presses.push_back(press);
     } else if (event == "release") {
         for (auto it = g_cur.presses.rbegin(); it != g_cur.presses.rend(); ++it) {
             if (it->hold == 0) {
@@ -186,6 +237,7 @@ void learnLoadLevel(std::string const& level) {
     g_cur = Attempt();
     g_spots.clear();
     g_finished.clear();
+    g_modClicks.clear();
     g_goodTotal = 0;
 
     std::ifstream in(Mod::get()->getSaveDir() / "attempts.csv");
@@ -242,6 +294,10 @@ bool learnIsBadClick(float x, float y) {
 }
 
 int learnWindowCount() { return static_cast<int>(g_windows.size()); }
+
+bool learnAutoClickFails(float x, float y) {
+    return modClicksFail(modOutcomes(x - MOD_RADIUS, x + MOD_RADIUS, yBucket(y), false));
+}
 
 LearnWindow const* learnWindowNear(float x, float y, float before, float after) {
     int yb = yBucket(y);

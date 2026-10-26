@@ -45,6 +45,9 @@ struct Settings {
 
 Settings& cfg();
 void loadSettings();
+// The installed .geode changed after the game loaded this one: a newer build
+// is waiting for a restart.
+bool modUpdatedSinceLaunch();
 
 Mode modeOf(PlayerObject* p);
 bool isGroundMode(PlayerObject* p);
@@ -101,6 +104,7 @@ struct LearnWindow {
     int hold;   // typical hold length of those clicks, in steps
     int n;      // how many good clicks it is based on
     int yBucket;  // height band the clicks were made at
+    bool modOk;   // false when the mod's own clicks here have mostly died
 };
 
 void learnLoadLevel(std::string const& level);
@@ -110,6 +114,8 @@ LearnWindow const* learnWindowNear(float x, float y, float before, float after);
 int learnWindowCount();
 // A click here has always killed the player, and not clicking here has not.
 bool learnIsBadClick(float x, float y);
+// The simulation's auto-clicks here have mostly killed the player.
+bool learnAutoClickFails(float x, float y);
 
 // ---- stats and overlay -----------------------------------------------------
 

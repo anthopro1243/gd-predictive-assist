@@ -58,7 +58,7 @@ constexpr int JUMP_BUTTON = 1;
 bool g_delivering = false;
 constexpr int SAVE_JUMP_STEPS = 110;    // a full cube jump at 240 TPS is about 100 steps
 constexpr int SAVE_SWALLOW_SLACK = 8;
-constexpr int LEARN_SWALLOW_STEPS = 12;     // a click this soon after a learned click is the same click, late
+constexpr int LEARN_SWALLOW_STEPS = 24;     // a click this soon after a learned click is the same click, late
 constexpr float LEARN_SAVE_SHADOW = 80.f;   // no simulation auto-click this close before a learned window   // steps past the avoided death a late click is still dropped
 
 // Plan-ahead search for ground-mode auto-clicks.
@@ -318,10 +318,10 @@ class $modify(AssistLayer, GJBaseGameLayer) {
             return;
         }
 
-        // Right after an auto-click in a ground mode, the player's own click
-        // for the same obstacle is late by definition. Delivering it would
-        // buffer a second jump, so drop it and its release.
-        if (isGroundMode(p)) {
+        // Right after a mod click, the player's own click for the same
+        // obstacle is late by definition. Delivering it would make a second
+        // jump or flap, so drop it and its release.
+        {
             if (down && nextStep <= f->swallowUntil[i]) {
                 f->swallowUntil[i] = 0;
                 f->swallowRelease[i] = true;
@@ -470,7 +470,7 @@ class $modify(AssistLayer, GJBaseGameLayer) {
 
         float x = p->getPositionX();
         auto w = learnWindowNear(x, p->getPositionY(), 0.f, 0.f);
-        if (!w || w->hi <= f->learnedDoneHi) return;
+        if (!w || !w->modOk || w->hi <= f->learnedDoneHi) return;
         // Last step inside the window: the next one passes its end.
         if (x + f->dx <= w->hi) return;
 
@@ -621,6 +621,11 @@ class $modify(AssistLayer, GJBaseGameLayer) {
             }
         }
 
+        if (j == 0 && c.learn && learnAutoClickFails(p->getPositionX(), p->getPositionY())) {
+            noSave("auto-clicks here have killed you before");
+            return;
+        }
+
         if (c.showPath) overlayShowPath(shown.path, false);
 
         int step = f->step;
@@ -631,7 +636,7 @@ class $modify(AssistLayer, GJBaseGameLayer) {
             f->early[k].rescueReleaseAt = step + hold;
         }
         f->saveCooldown[j] = step + hold + 2;
-        if (isGroundMode(p)) f->swallowUntil[j] = step + deathIn + SAVE_SWALLOW_SLACK;
+        f->swallowUntil[j] = step + std::max(deathIn + SAVE_SWALLOW_SLACK, LEARN_SWALLOW_STEPS);
 
         watch(j).clickStep = step;
         watch(j).danger.clear();

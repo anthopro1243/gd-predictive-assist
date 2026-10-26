@@ -2,11 +2,14 @@
 
 #include <Geode/ui/Notification.hpp>
 
+#include <filesystem>
+
 namespace assist {
 
 static Settings g_settings;
 static Stats g_stats;
 static int g_resetEpoch = 0;
+static std::filesystem::file_time_type g_packageTime;
 
 static constexpr char const* PREDICT_KEYS[ModeCount] = {
     "predict-cube", "predict-ship", "predict-ball", "predict-ufo",
@@ -17,6 +20,18 @@ Settings& cfg() { return g_settings; }
 Stats& stats() { return g_stats; }
 int resetEpoch() { return g_resetEpoch; }
 void bumpResetEpoch() { g_resetEpoch++; }
+
+static std::filesystem::file_time_type packageTime() {
+    std::error_code ec;
+    auto t = std::filesystem::last_write_time(Mod::get()->getPackagePath(), ec);
+    return ec ? std::filesystem::file_time_type() : t;
+}
+
+bool modUpdatedSinceLaunch() {
+    auto t = packageTime();
+    return t != std::filesystem::file_time_type() && g_packageTime != std::filesystem::file_time_type() &&
+           t != g_packageTime;
+}
 
 static int getInt(char const* key) {
     return static_cast<int>(Mod::get()->getSettingValue<int64_t>(key));
@@ -94,6 +109,7 @@ int ringsTouching(PlayerObject* p) {
 $on_mod(Loaded) {
     using namespace assist;
     loadSettings();
+    g_packageTime = packageTime();
 
     for (auto key : {"enabled", "show-label", "predictive", "assist-releases",
                      "predict-cube", "predict-ship", "predict-ball", "predict-ufo",
