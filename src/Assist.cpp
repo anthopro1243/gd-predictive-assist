@@ -13,9 +13,11 @@
 //    or an orb within the window, keeping the original tap length. This covers
 //    orbs, which the simulation does not model.
 //
-// With raw input on (the default), ship, wave and swing inputs skip all of
-// this and go straight to the game: those modes are flown by hold length, and
-// any delay both lags the ship and squashes fast taps into 1-step taps.
+// With raw input on (the default), ship, UFO, wave and swing inputs skip all
+// of this and go straight to the game: those modes are flown by hold length
+// or flap rhythm, and any delay both lags the ship and squashes fast taps into
+// 1-step taps. In UFO an extra click is an extra flap: learned clicks landed
+// just before the player's own click and doubled it.
 
 #include "State.hpp"
 
@@ -452,7 +454,7 @@ class $modify(AssistLayer, GJBaseGameLayer) {
     // ---- learned windows -----------------------------------------------------
 
     static bool learnable(PlayerObject* p) {
-        return isGroundMode(p) || modeOf(p) == Ufo;
+        return isGroundMode(p) || (modeOf(p) == Ufo && !isRawMode(p));
     }
 
     // Clicks for player 1 at the end of a learned window if they have not

@@ -5,7 +5,7 @@
     },
     "id": "anthonyvp.predictive-assist",
     "name": "Predictive Assist",
-    "version": "v0.10.0",
+    "version": "v0.10.1",
     "developer": "Anthony",
     "description": "Bot-assisted play: clicks for you right before a death, holds back clicks that would kill you when waiting a step or two survives, and replays early clicks on landings and orbs.",
     "settings": {
@@ -29,8 +29,8 @@
         },
         "raw-fly": {
             "type": "bool",
-            "name": "Raw input in ship, wave, swing",
-            "description": "Clicks and releases in ship, wave and swing go straight to the game the moment you press, with nothing delayed, merged or dropped. These modes are flown by how long you hold, so any delay makes the ship feel heavy and squashes fast taps. Turn off only to get predictive delay and auto-clicks back in these modes.",
+            "name": "Raw input in ship, UFO, wave, swing",
+            "description": "Clicks and releases in ship, UFO, wave and swing go straight to the game the moment you press, with nothing delayed, added or dropped. These modes are flown by how long you hold or by flap rhythm, so any delay makes the ship feel heavy, and an extra click in UFO is an extra flap. Turn off only to get predictive delay, learned clicks and auto-clicks back in these modes.",
             "default": true
         },
         "show-label": {
@@ -42,7 +42,7 @@
         "sec-learn": {
             "type": "title",
             "name": "Learn from my attempts",
-            "description": "Uses your recorded attempts on this level. Where your clicks have worked before, early clicks are held back to that spot and, if you have not clicked by the end of it, the mod clicks for you. Cube, ball, robot, spider and UFO, matched by height as well as position. Needs Record attempts on to keep learning."
+            "description": "Uses your recorded attempts on this level. Where your clicks have worked before, early clicks are held back to that spot and, if you have not clicked by the end of it, the mod clicks for you. Cube, ball, robot and spider (and UFO when raw input is off), matched by height as well as position. Needs Record attempts on to keep learning."
         },
         "learn": {
             "type": "bool",
@@ -110,7 +110,7 @@
         "sec-predict": {
             "type": "title",
             "name": "Predictive delay",
-            "description": "When you click or release, the mod simulates what happens. If doing it now kills you but waiting a few steps does not, the input waits for the first safe step.\n\nThe simulation stops at orbs, pads and most portals and lets those inputs through unchanged. The early-click buffer below covers orbs.\n\nShip, wave and swing are skipped while **Raw input in ship, wave, swing** is on."
+            "description": "When you click or release, the mod simulates what happens. If doing it now kills you but waiting a few steps does not, the input waits for the first safe step.\n\nThe simulation stops at orbs, pads and most portals and lets those inputs through unchanged. The early-click buffer below covers orbs.\n\nShip, UFO, wave and swing are skipped while **Raw input in ship, UFO, wave, swing** is on."
         },
         "predictive": {
             "type": "bool",

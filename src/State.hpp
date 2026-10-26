@@ -16,7 +16,7 @@ enum Mode { Cube = 0, Ship, Ball, Ufo, Wave, Robot, Spider, Swing, ModeCount };
 struct Settings {
     bool enabled = true;
     bool showLabel = true;
-    bool rawFly = true;        // ship, wave and swing inputs go straight to the game
+    bool rawFly = true;        // ship, UFO, wave and swing inputs go straight to the game
 
     bool predictive = true;
     int maxDelay = 5;          // physics steps an input may be held back
@@ -48,7 +48,7 @@ void loadSettings();
 
 Mode modeOf(PlayerObject* p);
 bool isGroundMode(PlayerObject* p);
-// Ship, wave and swing with raw input on: the assist leaves these inputs alone.
+// Ship, UFO, wave and swing with raw input on: the assist leaves these inputs alone.
 bool isRawMode(PlayerObject* p);
 char const* modeName(Mode m);
 int ringsTouching(PlayerObject* p);

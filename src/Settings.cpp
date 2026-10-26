@@ -73,7 +73,7 @@ bool isGroundMode(PlayerObject* p) {
 bool isRawMode(PlayerObject* p) {
     if (!g_settings.rawFly) return false;
     switch (modeOf(p)) {
-        case Ship: case Wave: case Swing: return true;
+        case Ship: case Ufo: case Wave: case Swing: return true;
         default: return false;
     }
 }
